@@ -1,193 +1,320 @@
-# BoulderMove
+# BoulderMove  
+### By Kruti Shah and Rhea Nair  
 
-BoulderMove is a multimodal trip planner for Boulder that combines transit routing, walking, and contextual information like weather and alerts in a single UI.
+BoulderMove is a multimodal trip planner for Boulder that combines **transit routing**, **walking**, **weather analysis**, **event alerts**, and a **machine-learning prediction model** into a single smart UI.
 
 This repository contains:
 
-- `backend/` - FastAPI routing API  
-- `frontend/` - React app with Google Maps UI  
-- `data/` - Preprocessed network / GTFS data (if present)  
-
+- `backend/` — FastAPI routing API + routing engine + ML training  
+- `frontend/` — React UI + Google Maps  
 
 ---
 
-## 1. Prerequisites
+# 1. Prerequisites
 
-Please install:
+## Local Requirements
+- Python 3.10+
+- Node.js LTS
+- Git
+- Virtualenv or Conda
 
-- Python 3.10+  
-- Node.js 18+ and npm  
-- Git  
-- (Optional) `python -m venv` for a virtual environment  
+## Cloud Requirements
+- Compute Engine VM  
+- Cloud SQL (PostgreSQL)  
+- Cloud Storage bucket  
+- Cloud Run (ML service)  
+- Cloud Build + Artifact Registry  
 
-You will also need a Google Maps JavaScript API key with:
-
+### API Keys Needed
+You must have a Google Maps JavaScript API key with:
 - Maps JavaScript API enabled  
-- Places API enabled (if autocomplete is used)  
+- Places API enabled  
 
 ---
 
-## 2. Clone the repository
+# 2. Clone the Repository
+
 ```bash
-git clone https://github.com/rheanair7/BoulderMove.git
-cd BoulderMove
-```
-
-Repo layout:
-```
-BoulderMove/
-├── backend/
-├── frontend/
-├── data/              # network / GTFS data if included
-└── README.md
+git clone https://github.com/cu-csci-4253-datacenter-fall-2025/final-project-rheanair7.git
+cd main
 ```
 
 ---
 
-## 3. Backend setup (FastAPI)
+# 3. Backend Setup (FastAPI)
 
 The backend lives in `backend/` and exposes endpoints consumed by the frontend.
 
-### 3.1 Create and activate a virtual environment
+## 3.1 Create and activate a virtual environment
+
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate    # On Windows: venv\Scripts\activate
+source venv/bin/activate       # Windows: venv\Scripts\activate
 ```
 
-### 3.2 Install dependencies
+## 3.2 Install dependencies
+
 ```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+## 3.3 Create backend `.env`
+
+Create a file: `backend/.env`
 
 ```
+GOOGLE_MAPS_API_KEY=YOUR_KEY
+OPENWEATHER_API_KEY=YOUR_KEY
+TICKETMASTER_API_KEY=YOUR_KEY
 
-The backend should still run even if some optional variables are missing, but it may skip weather or event enrichment depending on how the code is written.
+DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@HOST:PORT/DB_NAME
 
-### 3.3 Run the backend (development)
+ML_SERVICE_URL=http://localhost:9000/predict
+GTFS_DIR=./data/gtfs
+```
 
-From inside `backend/` with the virtual environment active:
+## 3.4 Start backend server
+
+### Development
 ```bash
-uvicorn combined_router:app --host 0.0.0.0 --port 8080 --reload
+uvicorn combined_router:app --reload --host 0.0.0.0 --port 8080
 ```
 
-You should now be able to open:
+### Production
+```bash
+gunicorn combined_router:app \
+  --worker-class uvicorn.workers.UvicornWorker \
+  --bind 0.0.0.0:8080
+```
 
-- API docs: http://localhost:8080/docs
+Backend runs at:
 
-Key endpoint used by the frontend:
-
-- `POST /plan_transit_full` - returns routes between origin and destination
-
-If startup fails due to missing data, make sure the `data/` folder is present and that your paths in the code or `.env` file match.
+```
+http://localhost:8080
+```
 
 ---
 
-## 4. Frontend setup (React + Google Maps)
+# 4. Frontend Setup (React)
 
-The frontend lives in `frontend/`. It renders the map and calls the backend API.
-
-### 4.1 Install dependencies
+## 4.1 Install dependencies
 ```bash
 cd ../frontend
 npm install
 ```
 
-### 4.2 Configure environment variables
+## 4.2 Create frontend `.env`
 
-Create a file `frontend/.env`:
-```env
-# Google Maps JavaScript API key (required)
-REACT_APP_GOOGLE_MAPS_API_KEY=YOUR_API_KEY_HERE
+Create `frontend/.env`:
 
-# Backend URL (FastAPI)
-REACT_APP_COMBINED_ROUTER_URL=http://localhost:8080
+```
+REACT_APP_GOOGLE_MAPS_API_KEY=YOUR_KEY
+REACT_APP_BACKBINDED_URL=http://localhost:8080
 ```
 
-Make sure the variable names match what is used in `src/App.js`.  
-For example, if `App.js` uses `process.env.REACT_APP_COMBINED_ROUTER_URL`, keep that exact name here.
+## 4.3 Run frontend
 
-### 4.3 Run the frontend (development)
 ```bash
 npm start
 ```
 
-This starts the React development server at:
-
-- http://localhost:3000
-
-You should see:
-
-- A Google Map centered on Boulder
-- Origin and destination inputs
-- Controls or a button to plan a trip
-
-When you submit a route request, the frontend calls the backend at http://localhost:8080.
+Frontend runs at:
+```
+http://localhost:3000
+```
 
 ---
 
-## 5. End-to-end test
+# 5. Using the App
 
-### 5.1 Start the backend
+When the frontend loads, you should see:
+
+- A Google Map centered on Boulder  
+- Origin and destination input boxes  
+- A button to plan a trip  
+
+Expected behavior when requesting a route:
+
+- A polyline route is drawn on the map  
+- Walking + transit segments are displayed  
+- Weather + event alerts appear  
+- ML-based on-time arrival probability is shown  
+
+---
+
+# 6. Machine Learning Model
+
+ML training scripts are located in:
+
+```
+backend/train_route_model_from_sql.py  
+backend/train_on_time_model.py
+```
+
+## Train model locally
 ```bash
 cd backend
 source venv/bin/activate
-uvicorn combined_router:app --host 0.0.0.0 --port 8080 --reload
+python train_route_model_from_sql.py
 ```
 
-### 5.2 Start the frontend
-```bash
-cd ../frontend
-npm start
-```
-
-### 5.3 Use the app
-
-1. Navigate to http://localhost:3000
-2. Enter an origin (for example, CU Boulder, Folsom Field)
-3. Enter a destination (for example, Pearl Street Mall, Boulder)
-4. Click the route button
-
-Expected behavior (depending on the exact version of the code):
-
-- The map displays a polyline representing the selected route
-- A sidebar or panel shows route steps or segments (walk, bus, etc.)
-- Optional: any weather or alert messages appear alongside the route
+This generates a model file used by the ML microservice.
 
 ---
 
-## 6. Troubleshooting
+# 7. Cloud Deployment
 
-### 6.1 Map not loading, grey screen, or "For development purposes only"
+## 7.1 Cloud SQL (PostgreSQL)
 
-- Check `REACT_APP_GOOGLE_MAPS_API_KEY` in `frontend/.env`
-- Ensure Maps JavaScript API (and Places API if used) are enabled for that key
+Add the following to backend `.env`:
 
-### 6.2 CORS errors in the browser
+```
+DATABASE_URL=postgresql+psycopg2://USER:PASSWORD@/bouldermove?host=/cloudsql/PROJECT:REGION:INSTANCE
+```
 
-The FastAPI app should be using `CORSMiddleware`. In `combined_router.py`, verify something like:
+## 7.2 Cloud Storage
+
+Upload files:
+
+```
+GTFS → gs://bouldermove-data/gtfs/
+Models → gs://bouldermove-data/models/
+```
+
+## 7.3 Deploy ML Service (Cloud Run)
+
+### Build image
+```bash
+gcloud builds submit backend/ml_service \
+  --tag gcr.io/PROJECT_ID/bouldermove-ml
+```
+
+### Deploy
+```bash
+gcloud run deploy bouldermove-ml \
+  --image gcr.io/PROJECT_ID/bouldermove-ml \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated
+```
+
+Add to backend `.env`:
+
+```
+ML_SERVICE_URL=https://bouldermove-ml-xxxx.run.app/predict
+```
+
+## 7.4 Deploy Backend to Compute Engine VM
+
+SSH into your VM:
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-venv
+git clone https://github.com/<username>/BoulderMove.git
+cd BoulderMove/backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Create service file at:
+
+`/etc/systemd/system/bouldermove.service`
+
+```
+[Unit]
+Description=BoulderMove Backend
+After=network.target
+
+[Service]
+User=USER
+WorkingDirectory=/home/USER/BoulderMove/backend
+Environment="PATH=/home/USER/BoulderMove/backend/venv/bin"
+ExecStart=/home/USER/BoulderMove/backend/venv/bin/gunicorn combined_router:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8080
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable bouldermove
+sudo systemctl start bouldermove
+```
+
+## 7.5 Deploy Frontend
+
+Upload the `frontend/build/` folder to your VM and serve using **Nginx**.
+
+---
+
+# 8. End-to-End Test
+
+1. Open frontend at **http://localhost:3000**  
+2. Enter origin + destination  
+3. Validate:
+
+- Transit routing path appears  
+- Walking route is drawn  
+- Weather alerts displayed  
+- Event alerts displayed  
+- ML prediction appears  
+
+If debugging:
+
+```bash
+journalctl -u bouldermove -f
+gcloud run logs read bouldermove-ml
+```
+
+---
+
+# 9. Troubleshooting
+
+### 9.1 Map not loading
+- Ensure API key is correct  
+- Enable Maps JavaScript and Places API  
+
+### 9.2 CORS Issues
+Ensure backend includes:
+
 ```python
 from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # or ["http://localhost:3000"]
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 ```
 
-### 6.3 Frontend cannot reach backend (Network Error or ECONNREFUSED)
+### 9.3 Frontend cannot reach backend
+- Confirm backend is running at http://localhost:8080  
+- Ensure frontend `.env` contains correct backend URL  
 
-- Confirm the backend is running on http://localhost:8080
-- Confirm `REACT_APP_COMBINED_ROUTER_URL` in `frontend/.env` matches the running backend URL
-
-### 6.4 Backend fails on import or missing data
-
-- Ensure required data files exist under `data/`
-- Ensure any paths in the code or `.env` file (such as `NETWORK_DATA_DIR`) point to the correct directories
+### 9.4 Missing GTFS or data files
+- Ensure GTFS is under `backend/data/gtfs/`  
+- Ensure paths in `.env` are correct  
 
 ---
+
+# 10. Using the App (Summary)
+
+1. Navigate to **http://localhost:3000**  
+2. Enter origin & destination  
+3. Click **Plan Trip**  
+4. View:
+   - Transit + walking route  
+   - Weather + event alerts  
+   - ML prediction score  
+
+---
+
