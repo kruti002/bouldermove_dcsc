@@ -2,6 +2,11 @@
 ### By Kruti Shah and Rhea Nair  
 
 BoulderMove is a multimodal trip planner for Boulder that combines **transit routing**, **walking**, **weather analysis**, **event alerts**, and a **machine-learning prediction model** into a single smart UI.
+## 🎥 Demo Video
+
+[![Watch the BoulderMove Demo](https://img.youtube.com/vi/fTusDKHIp4w/0.jpg)](https://youtu.be/fTusDKHIp4w)
+
+Click the image above to watch the full BoulderMove demo.
 
 This repository contains:
 
