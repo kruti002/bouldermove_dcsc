@@ -156,6 +156,14 @@ def get_optional_weather(lat, lon):
         return None
 
 
+def get_optional_events(polyline_points):
+    try:
+        return events_near_route(polyline_points) or {"count": 0, "events": []}
+    except Exception as error:
+        print(f"Events unavailable: {error}")
+        return {"count": 0, "events": []}
+
+
 # --------------------------- MAIN API -------------------------------------
 @app.post("/plan_transit_full")
 def plan_transit_full(req: PlanTransitRequest):
@@ -217,7 +225,7 @@ def plan_transit_full(req: PlanTransitRequest):
     full_geometry = walk1_latlon + transit_geometry + walk3_latlon
     print("[DEBUG] full_geometry points:", len(full_geometry))
 
-    events = events_near_route([(p["lat"], p["lon"]) for p in full_geometry])
+    events = get_optional_events([(p["lat"], p["lon"]) for p in full_geometry])
 
     # ------------------ ML FEATURE EXTRACTION ----------------------
     duration_min = sum(leg.get("duration_min", 0) for leg in transit_legs)
@@ -228,7 +236,12 @@ def plan_transit_full(req: PlanTransitRequest):
     snow_1h = weather.get("snow_1h", 0) if weather else 0
     wind_speed = weather.get("wind_speed", 0) if weather else 0
     temp = weather.get("temp", 0) if weather else 0
-    event_risk = 1.0 if len(events) > 0 else 0.0
+    event_count = (
+        events.get("count", len(events.get("events", [])))
+        if isinstance(events, dict)
+        else len(events)
+    )
+    event_risk = 1.0 if event_count > 0 else 0.0
 
     hour = datetime.now().hour
     is_weekend = datetime.now().weekday() >= 5
@@ -317,7 +330,7 @@ def osm_directions(
         )
 
     weather = get_optional_weather(origin_lat, origin_lon)
-    events = events_near_route(route_points[0])
+    events = get_optional_events(route_points[0])
 
     return {
         "routes": routes,

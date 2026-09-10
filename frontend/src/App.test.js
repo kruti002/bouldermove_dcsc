@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App, {
   buildMLFeatures,
   buildOsmRoutes,
@@ -12,18 +12,28 @@ jest.mock('@lottiefiles/dotlottie-react', () => ({
 jest.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map">{children}</div>,
   TileLayer: () => null,
-  Polyline: () => null,
-  Marker: ({ children }) => <div>{children}</div>,
+  Polyline: ({ positions }) => (
+    <div data-testid="route-polyline">{JSON.stringify(positions)}</div>
+  ),
+  Marker: ({ children, position }) => (
+    <div data-testid="route-marker">
+      {JSON.stringify(position)}
+      {children}
+    </div>
+  ),
   Tooltip: ({ children }) => <span>{children}</span>,
   useMap: () => ({ fitBounds: jest.fn() }),
 }));
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 test('renders the BoulderMove trip dashboard', () => {
   render(<App />);
   expect(screen.getAllByText(/BoulderMove/i).length).toBeGreaterThan(0);
   expect(screen.getByTestId('map')).toBeInTheDocument();
 });
-
 test('maps complete RAPTOR geometry and transit stops', () => {
   const data = {
     geometry: [
@@ -100,4 +110,254 @@ test('treats missing optional provider data as non-fatal', () => {
   expect(route.weather).toBeNull();
   expect(route.events_nearby).toEqual([]);
   expect(buildMLFeatures(route, route.weather).event_risk).toBe(0);
+});
+async function selectLocations() {
+  fireEvent.change(screen.getByPlaceholderText('Origin'), {
+    target: { value: 'Origin' },
+  });
+  fireEvent.click(screen.getAllByRole('button', { name: 'Find' })[0]);
+  fireEvent.click(await screen.findByRole('button', { name: 'Origin result' }));
+
+  fireEvent.change(screen.getByPlaceholderText('Destination'), {
+    target: { value: 'Destination' },
+  });
+  fireEvent.click(screen.getAllByRole('button', { name: 'Find' })[1]);
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Destination result' })
+  );
+}
+
+test('maps OSM directions to alternatives, complete coordinates, and endpoint markers', async () => {
+  const fetchMock = jest.spyOn(global, 'fetch');
+  fetchMock.mockImplementation((url, options) => {
+    const requestUrl = String(url);
+
+    if (requestUrl.includes('nominatim.openstreetmap.org')) {
+      const query = new URL(requestUrl).searchParams.get('q');
+      const isDestination = query === 'Destination';
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            place_id: isDestination ? 2 : 1,
+            display_name: `${query} result`,
+            lat: isDestination ? '40.2' : '40',
+            lon: isDestination ? '-105.2' : '-105',
+          },
+        ],
+      });
+    }
+
+    if (requestUrl.includes('/osm_directions')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          routes: [
+            {
+              duration: 600,
+              distance: 5000,
+              geometry: {
+                coordinates: [
+                  [-105, 40],
+                  [-105.1, 40.1],
+                  [-105.2, 40.2],
+                ],
+              },
+            },
+            {
+              duration: 720,
+              distance: 6500,
+              geometry: {
+                coordinates: [
+                  [-105, 40],
+                  [-105.05, 40.08],
+                  [-105.2, 40.2],
+                ],
+              },
+            },
+          ],
+          weather: null,
+          events_nearby: { count: 0, events: [] },
+        }),
+      });
+    }
+
+    if (options?.method === 'POST') {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          prob_on_time: 0.9,
+          expected_delay_min: 2,
+        }),
+      });
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+
+  render(<App />);
+  fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
+  fireEvent.click(screen.getByLabelText('Show alternative routes'));
+  await selectLocations();
+
+  await waitFor(() => {
+    expect(screen.getAllByTestId('route-polyline')).toHaveLength(2);
+  });
+
+  expect(screen.getAllByTestId('route-polyline')[0]).toHaveTextContent(
+    '[[40,-105],[40.1,-105.1],[40.2,-105.2]]'
+  );
+  expect(screen.getAllByTestId('route-polyline')[1]).toHaveTextContent(
+    '[[40,-105],[40.08,-105.05],[40.2,-105.2]]'
+  );
+  expect(screen.getAllByTestId('route-marker')).toHaveLength(2);
+  expect(screen.getAllByText(/Route [AB] — driving route/)).toHaveLength(2);
+
+  const routeRequest = fetchMock.mock.calls.find(([url]) =>
+    String(url).includes('/osm_directions')
+  )[0];
+  expect(routeRequest).toContain('alternatives=true');
+});
+
+test('renders the complete RAPTOR geometry and transit stop list', async () => {
+  const fetchMock = jest.spyOn(global, 'fetch');
+  fetchMock.mockImplementation((url, options) => {
+    const requestUrl = String(url);
+
+    if (requestUrl.includes('nominatim.openstreetmap.org')) {
+      const query = new URL(requestUrl).searchParams.get('q');
+      const isDestination = query === 'Destination';
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            place_id: isDestination ? 2 : 1,
+            display_name: `${query} result`,
+            lat: isDestination ? '40.2' : '40',
+            lon: isDestination ? '-105.2' : '-105',
+          },
+        ],
+      });
+    }
+
+    if (requestUrl.includes('/plan_transit_full')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          geometry: [
+            { lat: 40, lon: -105 },
+            { lat: 40.1, lon: -105.1 },
+            { lat: 40.2, lon: -105.2 },
+          ],
+          transit: [
+            {
+              route_id: 'BOLT',
+              intermediate_stops: ['Norlin Library', 'Downtown Boulder'],
+            },
+          ],
+          weather: null,
+          events_nearby: { count: 0, events: [] },
+        }),
+      });
+    }
+
+    if (requestUrl.includes('/osm_directions')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ routes: [] }),
+      });
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+
+  render(<App />);
+  fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
+  await selectLocations();
+  fireEvent.change(screen.getByRole('combobox'), {
+    target: { value: 'transit' },
+  });
+
+  await waitFor(() => {
+    expect(screen.getByTestId('route-polyline')).toHaveTextContent(
+      '[[40,-105],[40.1,-105.1],[40.2,-105.2]]'
+    );
+  });
+
+  expect(screen.getByText('Stops: Norlin Library → Downtown Boulder')).toBeInTheDocument();
+  expect(screen.getByText('Route A — Transit via BOLT')).toBeInTheDocument();
+  expect(screen.getAllByTestId('route-marker')).toHaveLength(2);
+});
+
+test('shows a usable route when optional weather and event data are unavailable', async () => {
+  const fetchMock = jest.spyOn(global, 'fetch');
+  fetchMock.mockImplementation((url, options) => {
+    const requestUrl = String(url);
+
+    if (requestUrl.includes('nominatim.openstreetmap.org')) {
+      const query = new URL(requestUrl).searchParams.get('q');
+      const isDestination = query === 'Destination';
+      return Promise.resolve({
+        ok: true,
+        json: async () => [
+          {
+            place_id: isDestination ? 2 : 1,
+            display_name: `${query} result`,
+            lat: isDestination ? '40.2' : '40',
+            lon: isDestination ? '-105.2' : '-105',
+          },
+        ],
+      });
+    }
+
+    if (requestUrl.includes('/osm_directions')) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          routes: [
+            {
+              duration: 600,
+              distance: 5000,
+              geometry: {
+                coordinates: [
+                  [-105, 40],
+                  [-105.2, 40.2],
+                ],
+              },
+            },
+          ],
+          weather: null,
+          events_nearby: [],
+        }),
+      });
+    }
+
+    if (options?.method === 'POST') {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          prob_on_time: null,
+          expected_delay_min: null,
+        }),
+      });
+    }
+
+    return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+  });
+
+  render(<App />);
+  fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
+  await selectLocations();
+
+  await waitFor(() => {
+    expect(screen.getByText('Route A — driving route')).toBeInTheDocument();
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Show today’s weather' }));
+
+  expect(
+    screen.getByText('Weather data unavailable for this route.')
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText('⚠️ No events today along this route.')
+  ).toBeInTheDocument();
 });
