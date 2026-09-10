@@ -100,6 +100,7 @@ export function buildTransitRoute(data, body) {
 
 /* ---------------- MAP STYLE ---------------- */
 const mapContainerStyle = {
+  position: "relative",
   width: "100%",
   height: "520px",
   borderRadius: "14px",
@@ -299,8 +300,12 @@ export default function App() {
   const [showWeatherDetails, setShowWeatherDetails] = useState(false);
   const [originCoords, setOriginCoords] = useState(null);
   const [destinationCoords, setDestinationCoords] = useState(null);
+  const [routeStatus, setRouteStatus] = useState({ type: "idle", message: "" });
 
-  const clearOldRoute = () => setRoutes([]);
+  const clearOldRoute = () => {
+    setRoutes([]);
+    setRouteStatus({ type: "idle", message: "" });
+  };
 
   /* ---------------- OPENSTREETMAP ROUTING (NON-TRANSIT) ---------------- */
 const fetchOsmRoute = useCallback(async () => {
@@ -316,13 +321,26 @@ const fetchOsmRoute = useCallback(async () => {
   const baseUrl = process.env.REACT_APP_COMBINED_ROUTER_URL || "";
   const url = `${baseUrl}/osm_directions?${params.toString()}`;
 
+  setRoutes([]);
+  setRouteStatus({ type: "loading", message: "" });
+
   try {
     const res = await fetch(url);
     const data = await res.json();
 
+    if (!res.ok || data.error?.code === "provider_failure") {
+      throw new Error(data.error?.message || "The routing service is temporarily unavailable.");
+    }
+
     if (!data.routes || data.routes.length === 0) {
       console.warn("No routes from OpenStreetMap routing");
       setRoutes([]);
+      setRouteStatus({
+        type: "no_route",
+        message:
+          data.error?.message ||
+          "No route connects those locations for the selected travel mode.",
+      });
       return;
     }
 
@@ -341,8 +359,14 @@ const fetchOsmRoute = useCallback(async () => {
       r.expected_delay_min = ml.expected_delay_min;
 }
     setRoutes(mappedRoutes);
+    setRouteStatus({ type: "success", message: "" });
   } catch (err) {
     console.error("OpenStreetMap route fetch failed:", err);
+    setRoutes([]);
+    setRouteStatus({
+      type: "provider_failure",
+      message: err.message || "The routing service is temporarily unavailable.",
+    });
   }
 }, [originCoords, destinationCoords, mode, showAlternatives]);
              
@@ -352,6 +376,7 @@ const fetchOsmRoute = useCallback(async () => {
     if (!originCoords || !destinationCoords) return;
 
     clearOldRoute();
+    setRouteStatus({ type: "loading", message: "" });
 
     const body = {
       origin: { lat: originCoords.lat, lon: originCoords.lon },
@@ -376,9 +401,20 @@ const fetchOsmRoute = useCallback(async () => {
 
       const data = await res.json();
 
+      if (!res.ok || data.error?.code === "provider_failure") {
+        throw new Error(
+          data.error?.message || "The transit routing service is temporarily unavailable."
+        );
+      }
+
       if (data.error) {
         console.log("Backend error:", data.error);
-        alert(data.error);
+        setRouteStatus({
+          type: "no_route",
+          message:
+            data.error.message ||
+            "No transit route connects those locations at this time.",
+        });
         return;
       }
 
@@ -387,8 +423,14 @@ const fetchOsmRoute = useCallback(async () => {
       const routeObj = buildTransitRoute(data, body);
 
       setRoutes([routeObj]);
+      setRouteStatus({ type: "success", message: "" });
     } catch (err) {
       console.error("Transit fetch error:", err);
+      setRoutes([]);
+      setRouteStatus({
+        type: "provider_failure",
+        message: err.message || "The transit routing service is temporarily unavailable.",
+      });
     }
   }, [mode, originCoords, destinationCoords]);
 
@@ -406,6 +448,14 @@ const fetchOsmRoute = useCallback(async () => {
       fetchOsmRoute();
     }
   }, [mode, originCoords, destinationCoords, fetchOsmRoute, fetchTransitRoute]);
+
+  const retryRoute = () => {
+    if (mode === "transit") {
+      fetchTransitRoute();
+    } else {
+      fetchOsmRoute();
+    }
+  };
 
   /* -------- Decode Polylines or use custom coords -------- */
   const decodedRoutes = routes.map((r) => {
@@ -705,6 +755,15 @@ const fetchOsmRoute = useCallback(async () => {
               Map view
             </div>
             <div style={mapContainerStyle}>
+                {(routeStatus.type === "no_route" ||
+                  routeStatus.type === "provider_failure") && (
+                  <RouteUnavailable
+                    status={routeStatus}
+                    onRetry={retryRoute}
+                    darkMode={darkMode}
+                    compact
+                  />
+                )}
                 <MapContainer
                   zoom={11}
                   center={[40.015, -105.2705]}
@@ -767,7 +826,18 @@ const fetchOsmRoute = useCallback(async () => {
             </div>
 
             {/* ROUTE LIST */}
-            {routes.length === 0 ? (
+            {routeStatus.type === "no_route" ||
+            routeStatus.type === "provider_failure" ? (
+              <RouteUnavailable
+                status={routeStatus}
+                onRetry={retryRoute}
+                darkMode={darkMode}
+              />
+            ) : routeStatus.type === "loading" ? (
+              <div style={{ fontSize: 13, color: darkMode ? "#9ca3af" : "#777" }}>
+                Finding routes…
+              </div>
+            ) : routes.length === 0 ? (
               <div
                 style={{
                   fontSize: 13,
@@ -811,6 +881,54 @@ const fetchOsmRoute = useCallback(async () => {
           )}
         </footer>
       </div>
+    </div>
+  );
+}
+
+function RouteUnavailable({ status, onRetry, darkMode, compact = false }) {
+  const providerFailed = status.type === "provider_failure";
+
+  return (
+    <div
+      role="alert"
+      style={{
+        ...(compact
+          ? {
+              position: "absolute",
+              zIndex: 1000,
+              top: 12,
+              left: 12,
+              right: 12,
+            }
+          : {}),
+        padding: compact ? "10px 12px" : "14px",
+        borderRadius: 10,
+        border: `1px solid ${providerFailed ? "#f59e0b" : "#94a3b8"}`,
+        background: darkMode ? "rgba(31, 41, 55, 0.96)" : "rgba(255, 255, 255, 0.96)",
+        color: darkMode ? "#f3f4f6" : "#1f2937",
+        boxShadow: compact ? "0 4px 14px rgba(0,0,0,0.18)" : "none",
+        fontSize: 13,
+      }}
+    >
+      <strong style={{ display: "block", marginBottom: 4 }}>
+        {providerFailed ? "Routing service unavailable" : "No route found"}
+      </strong>
+      {!compact && <div style={{ marginBottom: 10 }}>{status.message}</div>}
+      <button
+        type="button"
+        onClick={onRetry}
+        style={{
+          border: 0,
+          borderRadius: 7,
+          padding: "7px 11px",
+          background: "#2563eb",
+          color: "#fff",
+          cursor: "pointer",
+          fontWeight: 600,
+        }}
+      >
+        Try again
+      </button>
     </div>
   );
 }

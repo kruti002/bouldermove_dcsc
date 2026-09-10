@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -174,30 +175,54 @@ def plan_transit_full(req: PlanTransitRequest):
     departure_iso = req.depart_at or datetime.now().replace(microsecond=0).isoformat()
     print("Using departure time:", departure_iso)
 
-    # ORIGIN / DESTINATION STOPS
-    origin_stop = nearest_gtfs_stop(req.origin.lat, req.origin.lon)
-    origin_match = stops_gdf.loc[stops_gdf["stop_id"] == origin_stop]
+    try:
+        # ORIGIN / DESTINATION STOPS
+        origin_stop = nearest_gtfs_stop(req.origin.lat, req.origin.lon)
+        origin_match = stops_gdf.loc[stops_gdf["stop_id"] == origin_stop]
 
-    dest_stop = nearest_gtfs_stop(req.destination.lat, req.destination.lon)
-    dest_match = stops_gdf.loc[stops_gdf["stop_id"] == dest_stop]
+        dest_stop = nearest_gtfs_stop(req.destination.lat, req.destination.lon)
+        dest_match = stops_gdf.loc[stops_gdf["stop_id"] == dest_stop]
 
-    # WALK TO FIRST STOP
-    walk1_path = nx.shortest_path(
-        G,
-        nearest_graph_node(req.origin.lat, req.origin.lon),
-        int(origin_match["nearest_node"].iloc[0]),
-        weight="length",
-    )
-    walk1_latlon = path_to_latlon(walk1_path)
-    print("[DEBUG] walk1_latlon points:", len(walk1_latlon))
+        # WALK TO FIRST STOP
+        walk1_path = nx.shortest_path(
+            G,
+            nearest_graph_node(req.origin.lat, req.origin.lon),
+            int(origin_match["nearest_node"].iloc[0]),
+            weight="length",
+        )
+        walk1_latlon = path_to_latlon(walk1_path)
+        print("[DEBUG] walk1_latlon points:", len(walk1_latlon))
 
-    # TRANSIT (RAPTOR)
-    transit_legs = raptor.plan(origin_stop, dest_stop, departure_iso)
-    print("[DEBUG] transit_legs:", len(transit_legs))
+        # TRANSIT (RAPTOR)
+        transit_legs = raptor.plan(origin_stop, dest_stop, departure_iso)
+        print("[DEBUG] transit_legs:", len(transit_legs))
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        return {
+            "error": {
+                "code": "no_route",
+                "message": "No transit route connects those locations at this time.",
+            }
+        }
+    except Exception as error:
+        print(f"Transit routing provider failed: {error}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "code": "provider_failure",
+                    "message": "The transit routing service is temporarily unavailable.",
+                }
+            },
+        )
 
     # ----------------- NO ROUTE IF RAPTOR FAILS -------------------
     if not transit_legs or len(transit_legs) == 0:
-        return {"error": "No route found by the local RAPTOR transit engine."}
+        return {
+            "error": {
+                "code": "no_route",
+                "message": "No transit route connects those locations at this time.",
+            }
+        }
 
     # ----------------- NORMAL RAPTOR FLOW --------------------------
     # RAPTOR geometry (stops along the route)
@@ -302,13 +327,42 @@ def osm_directions(
         "alternates": 2 if alternatives else 0,
         "directions_options": {"units": "kilometers"},
     }
-    response = requests.post(
-        "https://valhalla1.openstreetmap.de/route",
-        json=payload,
-        timeout=20,
-    )
-    response.raise_for_status()
-    data = response.json()
+    try:
+        response = requests.post(
+            "https://valhalla1.openstreetmap.de/route",
+            json=payload,
+            timeout=20,
+        )
+        if response.status_code in (400, 404):
+            return {
+                "routes": [],
+                "error": {
+                    "code": "no_route",
+                    "message": "No route connects those locations for the selected travel mode.",
+                },
+            }
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError, KeyError) as error:
+        print(f"OpenStreetMap routing provider failed: {error}")
+        return JSONResponse(
+            status_code=502,
+            content={
+                "error": {
+                    "code": "provider_failure",
+                    "message": "The road routing service is temporarily unavailable.",
+                }
+            },
+        )
+
+    if "trip" not in data:
+        return {
+            "routes": [],
+            "error": {
+                "code": "no_route",
+                "message": "No route connects those locations for the selected travel mode.",
+            },
+        }
     trips = [data["trip"]]
     trips.extend(alternate["trip"] for alternate in data.get("alternates", []))
 
