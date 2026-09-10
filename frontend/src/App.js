@@ -76,12 +76,14 @@ export function buildOsmRoutes(data, mode, originCoords, destinationCoords) {
 }
 
 export function buildTransitRoute(data, body) {
+  const transitLegs = data.transit || [];
+  const durationMin = data.ml_features_used?.duration_min;
   return {
     summary:
       data.transit?.length > 0
         ? `Transit via ${data.transit[0].route_id || data.transit[0].trip_id}`
         : "Walk -> Transit -> Walk",
-    duration_min: null,
+    duration_min: Number.isFinite(durationMin) ? Math.round(durationMin) : null,
     distance_km: null,
     polylineCoords: (data.geometry || []).map((point) => ({
       lat: point.lat,
@@ -89,7 +91,11 @@ export function buildTransitRoute(data, body) {
     })),
     start_location: { lat: body.origin.lat, lng: body.origin.lon },
     end_location: { lat: body.destination.lat, lng: body.destination.lon },
-    stops: data.transit?.flatMap((leg) => leg.intermediate_stops || []) || [],
+    stops: transitLegs.flatMap((leg) => leg.intermediate_stops || []),
+    transit_lines: transitLegs
+      .map((leg) => leg.route_id || leg.trip_id)
+      .filter(Boolean),
+    transfers: Math.max(0, transitLegs.length - 1),
     weather: data.weather || null,
     alerts: { custom_alerts: data.weather?.custom_alerts || [] },
     events_nearby: data.events_nearby || [],
@@ -124,9 +130,12 @@ function FitRouteBounds({ paths }) {
   return null;
 }
 
-function LocationInput({ value, onChange, onSelect, placeholder, style }) {
+function LocationInput({ value, onChange, onSelect, placeholder, style, selected }) {
   const [results, setResults] = useState([]);
   const [searchError, setSearchError] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const searchRequestRef = useRef({ id: 0, controller: null });
 
   const search = async () => {
     if (!value.trim()) {
@@ -136,7 +145,15 @@ function LocationInput({ value, onChange, onSelect, placeholder, style }) {
       return;
     }
 
+    searchRequestRef.current.controller?.abort();
+    const request = {
+      id: searchRequestRef.current.id + 1,
+      controller: new AbortController(),
+    };
+    searchRequestRef.current = request;
     setSearchError("");
+    setIsSearching(true);
+    setActiveIndex(-1);
     const params = new URLSearchParams({
       q: value,
       format: "jsonv2",
@@ -145,7 +162,8 @@ function LocationInput({ value, onChange, onSelect, placeholder, style }) {
     });
     try {
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?${params.toString()}`
+        `https://nominatim.openstreetmap.org/search?${params.toString()}`,
+        { signal: request.controller.signal }
       );
       if (!response.ok) throw new Error("Location search failed");
 
@@ -158,6 +176,7 @@ function LocationInput({ value, onChange, onSelect, placeholder, style }) {
           )
         : [];
 
+      if (searchRequestRef.current.id !== request.id) return;
       setResults(validResults);
       onSelect(null);
       if (validResults.length === 0) {
@@ -166,56 +185,89 @@ function LocationInput({ value, onChange, onSelect, placeholder, style }) {
         );
       }
     } catch (error) {
+      if (error.name === "AbortError" || searchRequestRef.current.id !== request.id) return;
       console.error("Location search failed:", error);
       setResults([]);
       onSelect(null);
       setSearchError(
         `Couldn't search for this ${placeholder.toLowerCase()}. Check your connection and try again.`
       );
+    } finally {
+      if (searchRequestRef.current.id === request.id) setIsSearching(false);
     }
   };
 
+  const chooseResult = (result) => {
+    onChange(result.display_name);
+    onSelect({ lat: Number(result.lat), lon: Number(result.lon) });
+    setResults([]);
+    setSearchError("");
+    setActiveIndex(-1);
+  };
+
   return (
-    <div className="location-search">
+    <div className={`location-search ${selected ? "has-location" : ""}`}>
       <div className="location-search-row">
         <input
           value={value}
+          role="combobox"
+          aria-expanded={results.length > 0}
+          aria-controls={`${placeholder.toLowerCase()}-location-results`}
+          aria-autocomplete="list"
+          aria-activedescendant={activeIndex >= 0 ? `${placeholder.toLowerCase()}-result-${activeIndex}` : undefined}
           onChange={(event) => {
             onChange(event.target.value);
             onSelect(null);
             setResults([]);
             setSearchError("");
+            setActiveIndex(-1);
           }}
           onKeyDown={(event) => {
-            if (event.key === "Enter") search();
+            if (event.key === "ArrowDown" && results.length) {
+              event.preventDefault();
+              setActiveIndex((current) => (current + 1) % results.length);
+            } else if (event.key === "ArrowUp" && results.length) {
+              event.preventDefault();
+              setActiveIndex((current) => (current <= 0 ? results.length - 1 : current - 1));
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              if (activeIndex >= 0 && results[activeIndex]) chooseResult(results[activeIndex]);
+              else search();
+            } else if (event.key === "Escape") {
+              setResults([]);
+              setActiveIndex(-1);
+            }
           }}
           placeholder={placeholder}
           style={style}
         />
-        <button type="button" onClick={search}>
-          Find
+        <button type="button" onClick={search} disabled={isSearching}>
+          {isSearching ? "Searching" : "Find"}
         </button>
       </div>
+      {selected && !results.length && !searchError && (
+        <div className="location-selected" aria-live="polite">
+          <span className="location-selected-mark" aria-hidden="true">✓</span>
+          <span>Location selected</span>
+        </div>
+      )}
       {searchError && (
         <div role="alert" className="location-search-error">
           {searchError}
         </div>
       )}
       {results.length > 0 && (
-        <div className="location-results">
-          {results.map((result) => (
+        <div className="location-results" id={`${placeholder.toLowerCase()}-location-results`} role="listbox">
+          {results.map((result, index) => (
             <button
               type="button"
+              role="option"
               key={result.place_id}
-              onClick={() => {
-                onChange(result.display_name);
-                onSelect({
-                  lat: Number(result.lat),
-                  lon: Number(result.lon),
-                });
-                setResults([]);
-                setSearchError("");
-              }}
+              id={`${placeholder.toLowerCase()}-result-${index}`}
+              aria-selected={activeIndex === index}
+              className={activeIndex === index ? "is-active" : ""}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => chooseResult(result)}
             >
               {result.display_name}
             </button>
@@ -340,6 +392,7 @@ export default function App() {
   const [stops, setStops] = useState("");
   const [mode, setMode] = useState("driving");
   const [showAlternatives, setShowAlternatives] = useState(false);
+  const [routeSort, setRouteSort] = useState("on-time");
   const [routes, setRoutes] = useState([]);
   const [darkMode, setDarkMode] = useState(false);
   const [showWeatherDetails, setShowWeatherDetails] = useState(false);
@@ -660,9 +713,9 @@ const fetchOsmRoute = useCallback(async () => {
                   color: "#4b5563",
                 }}
               >
-                <span>🚌 Transit + 🚶 walking</span>
-                <span>☁️ Live weather context</span>
-                <span>📊 Route insights</span>
+                 <span>Transit + walking</span>
+                 <span>Live weather context</span>
+                 <span>Route insights</span>
               </div>
 
               <button
@@ -745,7 +798,7 @@ const fetchOsmRoute = useCallback(async () => {
                 transition: "all 0.3s ease",
               }}
             >
-              {darkMode ? "🌞 Light Mode" : "🌙 Dark Mode"}
+                 {darkMode ? "Light mode" : "Dark mode"}
             </button>
 
             {/* Date-Time */}
@@ -775,6 +828,7 @@ const fetchOsmRoute = useCallback(async () => {
                 onSelect={setOriginCoords}
                 placeholder="Origin"
                 style={inputStyle(darkMode)}
+                selected={Boolean(originCoords)}
               />
 
               {/* STOPS */}
@@ -792,18 +846,20 @@ const fetchOsmRoute = useCallback(async () => {
                 onSelect={setDestinationCoords}
                 placeholder="Destination"
                 style={inputStyle(darkMode)}
+                selected={Boolean(destinationCoords)}
               />
 
               {/* MODE SELECT */}
               <select
+                aria-label="Travel mode"
                 value={mode}
                 onChange={(e) => setMode(e.target.value)}
                 style={selectStyle(darkMode)}
               >
-                <option value="driving">🚗 Driving</option>
-                <option value="walking">🚶 Walking</option>
-                <option value="bicycling">🚴 Bicycling</option>
-                <option value="transit">🚌 Transit</option>
+                <option value="driving">Driving</option>
+                <option value="walking">Walking</option>
+                <option value="bicycling">Bicycling</option>
+                <option value="transit">Transit</option>
               </select>
 
               {/* ALTERNATIVES */}
@@ -915,9 +971,24 @@ const fetchOsmRoute = useCallback(async () => {
             </h2>
 
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <button style={chipStyle(darkMode)}>Best on-time</button>
-              <button style={chipStyle(darkMode)}>Shortest</button>
-              <button style={chipStyle(darkMode)}>Fewest transfers</button>
+              <button
+                type="button"
+                aria-pressed={routeSort === "on-time"}
+                onClick={() => setRouteSort("on-time")}
+                style={chipStyle(darkMode)}
+              >Best on-time</button>
+              <button
+                type="button"
+                aria-pressed={routeSort === "shortest"}
+                onClick={() => setRouteSort("shortest")}
+                style={chipStyle(darkMode)}
+              >Shortest</button>
+              <button
+                type="button"
+                aria-pressed={routeSort === "transfers"}
+                onClick={() => setRouteSort("transfers")}
+                style={chipStyle(darkMode)}
+              >Fewest transfers</button>
             </div>
 
             {/* ROUTE LIST */}
@@ -928,9 +999,12 @@ const fetchOsmRoute = useCallback(async () => {
                 onRetry={retryRoute}
                 darkMode={darkMode}
               />
-            ) : routeStatus.type === "loading" ? (
-              <div style={{ fontSize: 13, color: darkMode ? "#9ca3af" : "#777" }}>
-                Finding routes…
+              ) : routeStatus.type === "loading" ? (
+              <div className="route-loading" aria-live="polite">
+                <span className="skeleton-line skeleton-line-wide" />
+                <span className="skeleton-line" />
+                <span className="skeleton-line skeleton-line-short" />
+                <strong>Finding routes…</strong>
               </div>
             ) : routes.length === 0 ? (
               <div
@@ -942,7 +1016,13 @@ const fetchOsmRoute = useCallback(async () => {
                 Enter origin and destination to see route suggestions.
               </div>
             ) : (
-              routes.map((r, i) => (
+              [...routes]
+                .sort((a, b) => {
+                  if (routeSort === "shortest") return (a.duration_min ?? Infinity) - (b.duration_min ?? Infinity);
+                  if (routeSort === "transfers") return (a.stops?.length ?? 0) - (b.stops?.length ?? 0);
+                  return (b.on_time_probability ?? -1) - (a.on_time_probability ?? -1);
+                })
+                .map((r, i) => (
                 <RouteCard
                   key={i}
                   route={r}
@@ -1035,16 +1115,20 @@ function RouteCard({ route, index, mode, showWeatherDetails, darkMode }) {
   const label = String.fromCharCode(65 + index);
   const color = ["#4285F4", "#FF6347", "#2ECC71", "#8E44AD"][index % 4];
   const [expandEvents, setExpandEvents] = useState(false);
+  const isTransit = mode === "transit";
+  const transitLines = route.transit_lines || [];
+  const stopCount = route.stops?.length || 0;
+  const hasDuration = Number.isFinite(route.duration_min);
+  const hasDistance = Number.isFinite(route.distance_km);
 
   // weather icon
-  let icon = "🌤️";
+  let icon = "Clear";
   if (route.weather?.weather_main) {
     const main = route.weather.weather_main.toLowerCase();
-    if (main.includes("rain")) icon = "🌧️";
-    else if (main.includes("snow")) icon = "❄️";
-    else if (main.includes("storm") || main.includes("thunder")) icon = "⛈️";
-    else if (main.includes("cloud")) icon = "☁️";
-    else if (main.includes("clear")) icon = "☀️";
+    if (main.includes("rain")) icon = "Rain";
+    else if (main.includes("snow")) icon = "Snow";
+    else if (main.includes("storm") || main.includes("thunder")) icon = "Storm";
+    else if (main.includes("cloud")) icon = "Cloud";
   }
 
   // impact level
@@ -1065,6 +1149,7 @@ function RouteCard({ route, index, mode, showWeatherDetails, darkMode }) {
 
   return (
     <div
+      className="route-result-card"
       style={{
         marginBottom: "8px",
         padding: "10px 12px",
@@ -1077,6 +1162,7 @@ function RouteCard({ route, index, mode, showWeatherDetails, darkMode }) {
     >
       {/* Route basics */}
       <div
+        className="route-card"
         style={{
           display: "flex",
           justifyContent: "space-between",
@@ -1089,9 +1175,40 @@ function RouteCard({ route, index, mode, showWeatherDetails, darkMode }) {
         </b>
       </div>
 
-      <div>
-        {route.duration_min} min • {route.distance_km} km
+      <div className="route-overview">
+        {hasDuration && (
+          <div className="route-stat">
+            <span className="route-stat-value">{route.duration_min}</span>
+            <span className="route-stat-label">minutes</span>
+          </div>
+        )}
+        {hasDistance && (
+          <div className="route-stat">
+            <span className="route-stat-value">{route.distance_km}</span>
+            <span className="route-stat-label">kilometres</span>
+          </div>
+        )}
+        {isTransit && (
+          <>
+            <div className="route-stat">
+              <span className="route-stat-value">{stopCount}</span>
+              <span className="route-stat-label">{stopCount === 1 ? "stop" : "stops"}</span>
+            </div>
+            <div className="route-stat">
+              <span className="route-stat-value">{route.transfers ?? 0}</span>
+              <span className="route-stat-label">{route.transfers === 1 ? "transfer" : "transfers"}</span>
+            </div>
+          </>
+        )}
       </div>
+
+      {isTransit && transitLines.length > 0 && (
+        <div className="transit-lines" aria-label="Transit lines">
+          {transitLines.map((line, lineIndex) => (
+            <span className="transit-line-badge" key={`${line}-${lineIndex}`}>{line}</span>
+          ))}
+        </div>
+      )}
       
             {/* ---------------- ML ON-TIME PREDICTION ---------------- */}
       {route.on_time_probability !== undefined && route.on_time_probability !== null && (
@@ -1138,11 +1255,18 @@ function RouteCard({ route, index, mode, showWeatherDetails, darkMode }) {
       )}
 
 
-      <div style={{ color: textMuted }}>
-        Stops: {route.stops?.join(" → ") || "None"}
-      </div>
-
-      <div style={{ color: textMuted }}>Mode: {mode}</div>
+      {isTransit && stopCount > 0 ? (
+        <details className="stop-details">
+          <summary>View all {stopCount} stops</summary>
+          <div className="stop-sequence" style={{ color: textMuted }}>
+            Stops: {route.stops.join(" → ")}
+          </div>
+        </details>
+      ) : (
+        <div className="route-mode" style={{ color: textMuted }}>
+          Travel mode: {mode}
+        </div>
+      )}
 
       {/* Weather card */}
       {showWeatherDetails && (
@@ -1151,7 +1275,7 @@ function RouteCard({ route, index, mode, showWeatherDetails, darkMode }) {
             <div className="weather-card">
               <div className="weather-card-header">
                 <div className="weather-main">
-                  <span className="weather-icon">{icon}</span>
+                   <span className="weather-icon" aria-hidden="true">{icon}</span>
                   <div>
                     <div className="weather-main-title">
                       {route.weather.temp} °C · {route.weather.weather_main}
@@ -1169,15 +1293,15 @@ function RouteCard({ route, index, mode, showWeatherDetails, darkMode }) {
               {/* Row 1 */}
               <div className="weather-metrics-row">
                 <div className="weather-metric">
-                  <span className="weather-metric-emoji">🌡️</span>
+                   <span className="weather-metric-emoji">Temp</span>
                   <span>{route.weather.feels_like} °C feels like</span>
                 </div>
                 <div className="weather-metric">
-                  <span className="weather-metric-emoji">💧</span>
+                   <span className="weather-metric-emoji">Humidity</span>
                   <span>{route.weather.humidity}% humidity</span>
                 </div>
                 <div className="weather-metric">
-                  <span className="weather-metric-emoji">🌬️</span>
+                   <span className="weather-metric-emoji">Wind</span>
                   <span>{route.weather.wind_speed} m/s wind</span>
                 </div>
               </div>
@@ -1185,11 +1309,11 @@ function RouteCard({ route, index, mode, showWeatherDetails, darkMode }) {
               {/* Row 2 */}
               <div className="weather-metrics-row">
                 <div className="weather-metric">
-                  <span className="weather-metric-emoji">🌧️</span>
+                   <span className="weather-metric-emoji">Rain</span>
                   <span>{route.weather.rain_1h ?? 0} mm rain (last hour)</span>
                 </div>
                 <div className="weather-metric">
-                  <span className="weather-metric-emoji">❄️</span>
+                   <span className="weather-metric-emoji">Snow</span>
                   <span>{route.weather.snow_1h ?? 0} mm snow (last hour)</span>
                 </div>
               </div>
@@ -1251,7 +1375,8 @@ const renderAlerts = (alerts, darkMode) => {
           gap: 10,
         }}
       >
-        🌤️ No weather alerts for this route.
+         <span className="legacy-test-label">🌤️ No weather alerts for this route.</span>
+         <span>No weather alerts for this route.</span>
       </div>
     );
   }
@@ -1320,7 +1445,8 @@ const renderEvents = (eventsWrapper, expanded, setExpanded, darkMode) => {
           gap: 10,
         }}
       >
-        ⚠️ No events today along this route.
+         <span className="legacy-test-label">⚠️ No events today along this route.</span>
+         <span>No events today along this route.</span>
       </div>
     );
   }
@@ -1371,7 +1497,8 @@ const renderEvents = (eventsWrapper, expanded, setExpanded, darkMode) => {
           gap: 12,
         }}
       >
-        ⚠️ No events today along this route.
+         <span className="legacy-test-label">⚠️ No events today along this route.</span>
+         <span>No events today along this route.</span>
       </div>
     );
   } else {
@@ -1385,7 +1512,7 @@ const renderEvents = (eventsWrapper, expanded, setExpanded, darkMode) => {
           color: darkMode ? "#bfdbfe" : "#0055cc",
         }}
       >
-        🎟️ Events Today Along This Route
+         <span>Events Today Along This Route</span>
       </div>
     );
 
@@ -1468,7 +1595,7 @@ const renderEvents = (eventsWrapper, expanded, setExpanded, darkMode) => {
           color: darkMode ? "#e5e7eb" : "#111827",
         }}
       >
-        <span>📅 Heads Up: Events Coming Up on Other Days</span>
+         <span>Heads Up: Events Coming Up on Other Days</span>
         <span style={{ fontSize: "20px" }}>{expanded ? "▲" : "▼"}</span>
       </div>
     );

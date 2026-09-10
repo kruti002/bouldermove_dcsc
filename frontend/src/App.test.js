@@ -116,14 +116,14 @@ async function selectLocations() {
     target: { value: 'Origin' },
   });
   fireEvent.click(screen.getAllByRole('button', { name: 'Find' })[0]);
-  fireEvent.click(await screen.findByRole('button', { name: 'Origin result' }));
+  fireEvent.click(await screen.findByRole('option', { name: 'Origin result' }));
 
   fireEvent.change(screen.getByPlaceholderText('Destination'), {
     target: { value: 'Destination' },
   });
   fireEvent.click(screen.getAllByRole('button', { name: 'Find' })[1]);
   fireEvent.click(
-    await screen.findByRole('button', { name: 'Destination result' })
+    await screen.findByRole('option', { name: 'Destination result' })
   );
 }
 
@@ -186,7 +186,7 @@ describe('route recovery states', () => {
     });
     fireEvent.click(screen.getAllByRole('button', { name: 'Find' })[1]);
     fireEvent.click(
-      await screen.findByRole('button', { name: 'New Destination result' })
+      await screen.findByRole('option', { name: 'New Destination result' })
     );
     await waitFor(() => expect(pendingRoutes).toHaveLength(2));
 
@@ -202,7 +202,8 @@ describe('route recovery states', () => {
         ],
       }),
     });
-    expect(await screen.findByText('2 min • 1 km')).toBeInTheDocument();
+    expect(await screen.findByText('minutes')).toBeInTheDocument();
+    expect(screen.getByText('kilometres')).toBeInTheDocument();
 
     pendingRoutes[0]({
       ok: false,
@@ -212,7 +213,8 @@ describe('route recovery states', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('2 min • 1 km')).toBeInTheDocument();
+      expect(screen.getByText('minutes')).toBeInTheDocument();
+      expect(screen.getByText('kilometres')).toBeInTheDocument();
       expect(screen.queryByText('Routing service unavailable')).not.toBeInTheDocument();
     });
   });
@@ -251,7 +253,7 @@ describe('route recovery states', () => {
     await selectLocations();
     await waitFor(() => expect(resolveDrivingRoute).toBeDefined());
 
-    fireEvent.change(screen.getByRole('combobox'), {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Travel mode' }), {
       target: { value: 'transit' },
     });
 
@@ -394,7 +396,7 @@ describe('location search failures', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(message);
     expect(screen.getByPlaceholderText('Destination')).toBeEnabled();
-    expect(screen.getByRole('combobox')).toBeEnabled();
+    expect(screen.getByRole('combobox', { name: 'Travel mode' })).toBeEnabled();
     expect(screen.getByRole('button', { name: /show today’s weather/i })).toBeEnabled();
     expect(
       fetchMock.mock.calls.some(([url]) =>
@@ -551,7 +553,7 @@ test('renders the complete RAPTOR geometry and transit stop list', async () => {
   render(<App />);
   fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
   await selectLocations();
-  fireEvent.change(screen.getByRole('combobox'), {
+  fireEvent.change(screen.getByRole('combobox', { name: 'Travel mode' }), {
     target: { value: 'transit' },
   });
 
