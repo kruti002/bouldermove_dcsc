@@ -11,4 +11,4 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cd ../frontend
-HOST=0.0.0.0 PORT=5000 ../node_modules/.bin/react-scripts start
+HOST=0.0.0.0 PORT=5000 npm start

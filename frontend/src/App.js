@@ -40,6 +40,10 @@ async function scoreRouteML(routeFeatures) {
   }
 }
 function buildMLFeatures(route, weather) {
+  const nearbyEventCount = Array.isArray(route.events_nearby)
+    ? route.events_nearby.length
+    : route.events_nearby?.count ?? route.events_nearby?.events?.length ?? 0;
+
   return {
     duration_min: route.duration_min ?? 0,
     buffer_min: 5, // constant buffer for now, or make UI-input later
@@ -48,7 +52,7 @@ function buildMLFeatures(route, weather) {
     snow_1h: weather?.snow_1h ?? 0,
     wind_speed: weather?.wind_speed ?? 0,
     temp: weather?.temp ?? 0,
-    event_risk: route.events_nearby?.length > 0 ? 1.0 : 0.0,
+    event_risk: nearbyEventCount > 0 ? 1.0 : 0.0,
     hour: new Date().getHours(),
     is_weekend: [0,6].includes(new Date().getDay()),
   };
@@ -358,20 +362,17 @@ const fetchOsmRoute = useCallback(async () => {
 
       const routeObj = {
         summary:
-          data.transit?.legs?.length > 0
+          data.transit?.length > 0
             ? `Transit via ${
-                data.transit.legs[0].route_id || data.transit.legs[0].trip_id
+                data.transit[0].route_id || data.transit[0].trip_id
               }`
              : "Walk -> Transit  -> Walk",
         duration_min: null,
         distance_km: null,
-        polylineCoords: [
-          ...(data.walk_to_stop || []).map((p) => ({ lat: p.lat, lng: p.lon })),
-          ...(data.walk_to_destination || []).map((p) => ({
-            lat: p.lat,
-            lng: p.lon,
-          })),
-        ],
+        polylineCoords: (data.geometry || []).map((p) => ({
+          lat: p.lat,
+          lng: p.lon,
+        })),
         start_location: {
           lat: body.origin.lat,
           lng: body.origin.lon,
@@ -381,7 +382,7 @@ const fetchOsmRoute = useCallback(async () => {
           lng: body.destination.lon,
         },
         stops:
-          data.transit?.legs?.flatMap((l) => l.intermediate_stops || []) || [],
+          data.transit?.flatMap((leg) => leg.intermediate_stops || []) || [],
         weather: data.weather || null,
         alerts: { custom_alerts: data.weather?.custom_alerts || [] },
         events_nearby: data.events_nearby || [],

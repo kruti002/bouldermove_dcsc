@@ -295,24 +295,32 @@ def osm_directions(
         timeout=20,
     )
     response.raise_for_status()
-    trip = response.json()["trip"]
+    data = response.json()
+    trips = [data["trip"]]
+    trips.extend(alternate["trip"] for alternate in data.get("alternates", []))
 
-    points = []
-    for leg in trip["legs"]:
-        points.extend(polyline.decode(leg["shape"], precision=6))
+    routes = []
+    route_points = []
+    for trip in trips:
+        points = []
+        for leg in trip["legs"]:
+            points.extend(polyline.decode(leg["shape"], precision=6))
+        route_points.append(points)
+        routes.append(
+            {
+                "duration": trip["summary"]["time"],
+                "distance": trip["summary"]["length"] * 1000,
+                "geometry": {
+                    "coordinates": [[lon, lat] for lat, lon in points],
+                },
+            }
+        )
 
-    route = {
-        "duration": trip["summary"]["time"],
-        "distance": trip["summary"]["length"] * 1000,
-        "geometry": {
-            "coordinates": [[lon, lat] for lat, lon in points],
-        },
-    }
     weather = get_optional_weather(origin_lat, origin_lon)
-    events = events_near_route(points)
+    events = events_near_route(route_points[0])
 
     return {
-        "routes": [route],
+        "routes": routes,
         "weather": weather,
         "events_nearby": events,
     }

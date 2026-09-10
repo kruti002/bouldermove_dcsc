@@ -8,7 +8,7 @@ The `Start application` workflow runs both services:
 - FastAPI backend on port 8080
 
 The frontend proxies API calls to the backend. Maps use React Leaflet with
-OpenStreetMap tiles, Nominatim location search, and OSRM non-transit routing.
+OpenStreetMap tiles, Nominatim location search, and Valhalla non-transit routing.
 No Google Maps API key is required.
 
 ## Optional service keys
