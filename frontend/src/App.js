@@ -1,44 +1,24 @@
 import { DotLottieReact } from "@lottiefiles/dotlottie-react";
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
-  GoogleMap,
+  MapContainer,
+  TileLayer,
   Polyline,
   Marker,
-  useJsApiLoader,
-} from "@react-google-maps/api";
-import { Autocomplete } from "@react-google-maps/api";
+  Tooltip,
+  useMap,
+} from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import polyline from "@mapbox/polyline";
 import "./App.css";
 
-function makeFakeRoute(origin, destination) {
-  const points = [];
-
-  const lat1 = origin.lat;
-  const lon1 = origin.lon;
-  const lat2 = destination.lat;
-  const lon2 = destination.lon;
-
-  const steps = 8; // number of bends/segments
-
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-
-    // Base interpolation
-    let lat = lat1 * (1 - t) + lat2 * t;
-    let lon = lon1 * (1 - t) + lon2 * t;
-
-    // Add turns & wiggles
-    const wiggle = 0.002 * Math.sin(t * Math.PI * 3);   // 3 waves
-    const offset = 0.0015 * Math.cos(t * Math.PI * 2);  // 2 offsets
-
-    lat += wiggle;
-    lon += offset;
-
-    points.push({ lat, lng: lon });
-  }
-
-  return points;
-}
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+});
  
 async function scoreRouteML(routeFeatures) {
   try {
@@ -74,8 +54,6 @@ function buildMLFeatures(route, weather) {
   };
 }
 
-const GOOGLE_MAP_LIBRARIES = ["places"];
-
 /* ---------------- MAP STYLE ---------------- */
 const mapContainerStyle = {
   width: "100%",
@@ -85,13 +63,78 @@ const mapContainerStyle = {
   overflow: "hidden",
 };
 
-const mapOptions = {
-  disableDefaultUI: false,
-  zoomControl: true,
-  streetViewControl: false,
-  fullscreenControl: true,
-  mapTypeControl: false,
-};
+function FitRouteBounds({ paths }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const points = paths.flat();
+    if (points.length > 0) {
+      map.fitBounds(points.map((point) => [point.lat, point.lng]), {
+        padding: [24, 24],
+      });
+    }
+  }, [map, paths]);
+
+  return null;
+}
+
+function LocationInput({ value, onChange, onSelect, placeholder, style }) {
+  const [results, setResults] = useState([]);
+
+  const search = async () => {
+    if (!value.trim()) return;
+    const params = new URLSearchParams({
+      q: value,
+      format: "jsonv2",
+      limit: "5",
+      countrycodes: "us",
+    });
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?${params.toString()}`
+    );
+    if (!response.ok) throw new Error("Location search failed");
+    setResults(await response.json());
+  };
+
+  return (
+    <div className="location-search">
+      <div className="location-search-row">
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") search().catch(console.error);
+          }}
+          placeholder={placeholder}
+          style={style}
+        />
+        <button type="button" onClick={() => search().catch(console.error)}>
+          Find
+        </button>
+      </div>
+      {results.length > 0 && (
+        <div className="location-results">
+          {results.map((result) => (
+            <button
+              type="button"
+              key={result.place_id}
+              onClick={() => {
+                onChange(result.display_name);
+                onSelect({
+                  lat: Number(result.lat),
+                  lon: Number(result.lon),
+                });
+                setResults([]);
+              }}
+            >
+              {result.display_name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* -------- Shared Layout Styles (dark-mode aware) -------- */
 const topBarStyle = (darkMode) => ({
@@ -213,118 +256,53 @@ export default function App() {
   const [originCoords, setOriginCoords] = useState(null);
   const [destinationCoords, setDestinationCoords] = useState(null);
 
-  const mapRef = useRef(null);
-  const originAutoRef = useRef(null);
-  const destAutoRef = useRef(null);
-  const stopsAutoRef = useRef(null);
-
   const clearOldRoute = () => setRoutes([]);
 
-  /* Load Google Maps API */
-  const { isLoaded } = useJsApiLoader({
-    googleMapsApiKey: process.env.REACT_APP_GOOGLE_MAPS_API_KEY,
-    libraries: GOOGLE_MAP_LIBRARIES,
-  });
-
-  /* ---------------- AUTOCOMPLETE HANDLERS ---------------- */
-  const handleOriginSelect = () => {
-    const place = originAutoRef.current?.getPlace();
-    if (!place) return;
-
-    if (place.formatted_address) setOrigin(place.formatted_address);
-
-    if (place.geometry?.location) {
-      const loc = place.geometry.location;
-      setOriginCoords({ lat: loc.lat(), lon: loc.lng() });
-    }
-  };
-
-  const handleDestinationSelect = () => {
-    const place = destAutoRef.current?.getPlace();
-    if (!place) return;
-
-    if (place.formatted_address) setDestination(place.formatted_address);
-
-    if (place.geometry?.location) {
-      const loc = place.geometry.location;
-      setDestinationCoords({ lat: loc.lat(), lon: loc.lng() });
-    }
-  };
-
-  const handleStopSelect = () => {
-    const place = stopsAutoRef.current?.getPlace();
-    if (place?.formatted_address) {
-      setStops((prev) =>
-        prev ? prev + "; " + place.formatted_address : place.formatted_address
-      );
-    }
-  };
-
-  /* ---------------- GOOGLE DIRECTIONS VIA BACKEND PROXY (NON-TRANSIT) ---------------- */
-  /* ---------------- GOOGLE DIRECTIONS VIA BACKEND PROXY (NON-TRANSIT) ---------------- */
-const fetchGoogleRoute = useCallback(async () => {
+  /* ---------------- OPENSTREETMAP ROUTING (NON-TRANSIT) ---------------- */
+const fetchOsmRoute = useCallback(async () => {
   if (!originCoords || !destinationCoords) return;
   if (mode === "transit") return; // safety
-
-  const baseUrl = process.env.REACT_APP_COMBINED_ROUTER_URL;
-  if (!baseUrl) {
-    console.error("REACT_APP_COMBINED_ROUTER_URL is not set");
-    return;
-  }
 
   const params = new URLSearchParams({
     origin: `${originCoords.lat},${originCoords.lon}`,
     destination: `${destinationCoords.lat},${destinationCoords.lon}`,
     mode,
-    alternatives: showAlternatives ? "true" : "false",
+    alternatives: String(showAlternatives),
   });
+  const baseUrl = process.env.REACT_APP_COMBINED_ROUTER_URL || "";
+  const url = `${baseUrl}/osm_directions?${params.toString()}`;
 
   try {
-    const res = await fetch(`${baseUrl}/google_directions?${params.toString()}`);
+    const res = await fetch(url);
     const data = await res.json();
 
     if (!data.routes || data.routes.length === 0) {
-      console.warn("No routes from google_directions proxy");
+      console.warn("No routes from OpenStreetMap routing");
       setRoutes([]);
       return;
     }
 
     const mappedRoutes = data.routes.map((route) => {
-    const leg = route.legs[0];
-
-    const pts = polyline
-        .decode(route.overview_polyline.points)
-        .map(([lat, lng]) => ({ lat, lng }));
-      
-
-    return {
-        summary: route.summary || `${mode} route`,
-        duration_min: leg.duration?.value / 60 || null,
-        distance_km: leg.distance?.value / 1000 || null,
-        polylineCoords: pts,
-
-        // ⭐ FIXED (MARKERS WILL SHOW)
+      const points = route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+      return {
+        summary: `${mode} route`,
+        duration_min: Math.round(route.duration / 60),
+        distance_km: Number((route.distance / 1000).toFixed(1)),
+        polylineCoords: points,
         start_location: {
-        lat: data.origin_lat,
-        lng: data.origin_lon,
+          lat: originCoords.lat,
+          lng: originCoords.lon,
         },
         end_location: {
-        lat: data.destination_lat,
-        lng: data.destination_lon,
+          lat: destinationCoords.lat,
+          lng: destinationCoords.lon,
         },
-
-        // ⭐ FIXED (WEATHER WILL SHOW)
         weather: data.weather || null,
-
-        // ⭐ FIXED (WEATHER ALERTS WILL SHOW)
         alerts: { custom_alerts: data.weather?.custom_alerts || [] },
-
-        // ⭐ FIXED (EVENTS WILL SHOW)
         events_nearby: data.events_nearby || [],
         on_time_probability: null,
         on_time: null,
-
-    };
+      };
     });
 
   for (let r of mappedRoutes) {
@@ -336,7 +314,7 @@ const fetchGoogleRoute = useCallback(async () => {
 }
     setRoutes(mappedRoutes);
   } catch (err) {
-    console.error("Proxy google_directions fetch failed:", err);
+    console.error("OpenStreetMap route fetch failed:", err);
   }
 }, [originCoords, destinationCoords, mode, showAlternatives]);
              
@@ -353,7 +331,9 @@ const fetchGoogleRoute = useCallback(async () => {
       depart_at: new Date().toISOString(),
     };
 
-    const url = `${process.env.REACT_APP_COMBINED_ROUTER_URL}/plan_transit_full`;
+    const url = `${
+      process.env.REACT_APP_COMBINED_ROUTER_URL || ""
+    }/plan_transit_full`;
 
     console.log("DEBUG: ➜ Transit fetch STARTED");
     console.log("DEBUG: URL →", url);
@@ -428,9 +408,9 @@ const fetchGoogleRoute = useCallback(async () => {
     if (mode === "transit") {
       fetchTransitRoute();
     } else {
-      fetchGoogleRoute();
+      fetchOsmRoute();
     }
-  }, [mode, originCoords, destinationCoords, fetchGoogleRoute, fetchTransitRoute]);
+  }, [mode, originCoords, destinationCoords, fetchOsmRoute, fetchTransitRoute]);
 
   /* -------- Decode Polylines or use custom coords -------- */
   const decodedRoutes = routes.map((r) => {
@@ -458,24 +438,7 @@ const fetchGoogleRoute = useCallback(async () => {
     return markers;
   };
 
-  /* -------- Fit map to route -------- */
-  useEffect(() => {
-    if (!isLoaded || !mapRef.current || decodedRoutes.length === 0) return;
-
-    const bounds = new window.google.maps.LatLngBounds();
-    decodedRoutes.forEach((path) => path.forEach((p) => bounds.extend(p)));
-    mapRef.current.fitBounds(bounds);
-  }, [decodedRoutes, isLoaded]);
-
   /* ---------------- UI ---------------- */
-  if (!isLoaded) {
-    return (
-      <div style={{ textAlign: "center", padding: "200px 0" }}>
-        Loading map...
-      </div>
-    );
-  }
-
   return (
     <div
       className={darkMode ? "dark-mode" : "light-mode"}
@@ -666,43 +629,30 @@ const fetchGoogleRoute = useCallback(async () => {
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {/* ORIGIN */}
-              <Autocomplete
-                onLoad={(ref) => (originAutoRef.current = ref)}
-                onPlaceChanged={handleOriginSelect}
-              >
-                <input
-                  value={origin}
-                  onChange={(e) => setOrigin(e.target.value)}
-                  placeholder="Origin"
-                  style={inputStyle(darkMode)}
-                />
-              </Autocomplete>
+              <LocationInput
+                value={origin}
+                onChange={setOrigin}
+                onSelect={setOriginCoords}
+                placeholder="Origin"
+                style={inputStyle(darkMode)}
+              />
 
               {/* STOPS */}
-              <Autocomplete
-                onLoad={(ref) => (stopsAutoRef.current = ref)}
-                onPlaceChanged={handleStopSelect}
-              >
-                <input
-                  value={stops}
-                  onChange={(e) => setStops(e.target.value)}
-                  placeholder="Stops — semicolon separated"
-                  style={inputStyleLarge(darkMode)}
-                />
-              </Autocomplete>
+              <input
+                value={stops}
+                onChange={(e) => setStops(e.target.value)}
+                placeholder="Stops — semicolon separated"
+                style={inputStyleLarge(darkMode)}
+              />
 
               {/* DESTINATION */}
-              <Autocomplete
-                onLoad={(ref) => (destAutoRef.current = ref)}
-                onPlaceChanged={handleDestinationSelect}
-              >
-                <input
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
-                  placeholder="Destination"
-                  style={inputStyle(darkMode)}
-                />
-              </Autocomplete>
+              <LocationInput
+                value={destination}
+                onChange={setDestination}
+                onSelect={setDestinationCoords}
+                placeholder="Destination"
+                style={inputStyle(darkMode)}
+              />
 
               {/* MODE SELECT */}
               <select
@@ -760,28 +710,30 @@ const fetchGoogleRoute = useCallback(async () => {
               Map view
             </div>
             <div style={mapContainerStyle}>
-              {isLoaded ? (
-                <GoogleMap
-                  onLoad={(map) => (mapRef.current = map)}
-                  zoom={10}
-                  center={{ lat: 39.5, lng: -98.35 }}
-                  mapContainerStyle={{ width: "100%", height: "100%" }}
-                  options={mapOptions}
+                <MapContainer
+                  zoom={11}
+                  center={[40.015, -105.2705]}
+                  style={{ width: "100%", height: "100%" }}
                 >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <FitRouteBounds paths={decodedRoutes} />
                   {/* ROUTE POLYLINES */}
                   {decodedRoutes.map((path, i) => (
                     <Polyline
                       key={i}
-                      path={path}
-                      options={{
-                        strokeColor: [
+                      positions={path.map((point) => [point.lat, point.lng])}
+                      pathOptions={{
+                        color: [
                           "#4285F4",
                           "#FF6347",
                           "#2ECC71",
                           "#8E44AD",
                         ][i % 4],
-                        strokeWeight: i === 0 ? 6 : 4,
-                        strokeOpacity: i === 0 ? 1 : 0.7,
+                        weight: i === 0 ? 6 : 4,
+                        opacity: i === 0 ? 1 : 0.7,
                       }}
                     />
                   ))}
@@ -790,16 +742,14 @@ const fetchGoogleRoute = useCallback(async () => {
                   {buildMarkers().map((m, index) => (
                     <Marker
                       key={index}
-                      position={m.position}
-                      label={String.fromCharCode(65 + index)}
-                    />
+                      position={[m.position.lat, m.position.lng]}
+                    >
+                      <Tooltip permanent direction="top">
+                        {String.fromCharCode(65 + index)}
+                      </Tooltip>
+                    </Marker>
                   ))}
-                </GoogleMap>
-              ) : (
-                <div style={{ textAlign: "center", padding: "200px 0" }}>
-                  Loading map...
-                </div>
-              )}
+                </MapContainer>
             </div>
           </section>
 

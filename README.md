@@ -31,9 +31,11 @@ This repository contains:
 - Cloud Build + Artifact Registry  
 
 ### API Keys Needed
-You must have a Google Maps JavaScript API key with:
-- Maps JavaScript API enabled  
-- Places API enabled  
+- OpenWeather API key for live weather context
+- Ticketmaster API key (optional) for nearby event alerts
+
+Map rendering, location search, and non-transit directions use OpenStreetMap
+services and do not require a map API key.
 
 ---
 
@@ -70,7 +72,6 @@ pip install -r requirements.txt
 Create a file: `backend/.env`
 
 ```
-GOOGLE_MAPS_API_KEY=YOUR_KEY
 OPENWEATHER_API_KEY=YOUR_KEY
 TICKETMASTER_API_KEY=YOUR_KEY
 
@@ -115,8 +116,7 @@ npm install
 Create `frontend/.env`:
 
 ```
-REACT_APP_GOOGLE_MAPS_API_KEY=YOUR_KEY
-REACT_APP_BACKBINDED_URL=http://localhost:8080
+REACT_APP_COMBINED_ROUTER_URL=http://localhost:8080
 ```
 
 ## 4.3 Run frontend

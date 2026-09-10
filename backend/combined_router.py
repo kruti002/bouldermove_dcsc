@@ -11,7 +11,7 @@ import requests
 from datetime import datetime
 import polyline
 
-from weather_service import get_weather_and_alerts
+from weather_service import WeatherError, get_weather_and_alerts
 from events_service import events_near_route
 import raptor_engine
 
@@ -148,32 +148,11 @@ def format_weather(raw):
     }
 
 
-# ---------------------- GOOGLE FALLBACK (TRANSIT) -------------------------
-def google_transit_route(origin: Location, destination: Location):
-    key = os.getenv("GOOGLE_MAPS_API_KEY")
-    if not key:
-        print("[GOOGLE BACKUP] Missing API key.")
-        return None
-
-    url = (
-        "https://maps.googleapis.com/maps/api/directions/json?"
-        f"origin={origin.lat},{origin.lon}&"
-        f"destination={destination.lat},{destination.lon}&"
-        f"mode=transit&departure_time=now&key={key}"
-    )
-
+def get_optional_weather(lat, lon):
     try:
-        r = requests.get(url, timeout=6)
-        data = r.json()
-
-        if data.get("routes"):
-            overview = data["routes"][0]["overview_polyline"]["points"]
-            coords = polyline.decode(overview)
-            return [{"lat": lat, "lon": lon} for lat, lon in coords]
-
-        return None
-    except Exception as e:
-        print("[GOOGLE BACKUP ERROR]", e)
+        return format_weather(get_weather_and_alerts(lat, lon))
+    except WeatherError as error:
+        print(f"Weather unavailable: {error}")
         return None
 
 
@@ -182,7 +161,7 @@ def google_transit_route(origin: Location, destination: Location):
 def plan_transit_full(req: PlanTransitRequest):
     """
     Walk -> transit -> walk routing with RAPTOR, plus weather, events, and ML scoring.
-    Falls back to Google Transit if RAPTOR finds no journey.
+    Returns an error if RAPTOR finds no journey.
     """
     departure_iso = req.depart_at or datetime.now().replace(microsecond=0).isoformat()
     print("Using departure time:", departure_iso)
@@ -208,59 +187,9 @@ def plan_transit_full(req: PlanTransitRequest):
     transit_legs = raptor.plan(origin_stop, dest_stop, departure_iso)
     print("[DEBUG] transit_legs:", len(transit_legs))
 
-    # ----------------- FALLBACK IF RAPTOR FAILS -------------------
+    # ----------------- NO ROUTE IF RAPTOR FAILS -------------------
     if not transit_legs or len(transit_legs) == 0:
-        print("⚠ RAPTOR FAILED → Using Google Transit API fallback")
-        google_geom = google_transit_route(req.origin, req.destination)
-
-        if not google_geom:
-            return {"error": "No route found by RAPTOR or Google Maps."}
-
-        weather = format_weather(get_weather_and_alerts(req.origin.lat, req.origin.lon))
-        events = events_near_route([(p["lat"], p["lon"]) for p in google_geom])
-
-        duration_min = 0.0  # unknown; could be improved later
-        num_transfers = 0
-        buffer_min = 5
-
-        rain_1h = weather.get("rain_1h", 0) if weather else 0
-        snow_1h = weather.get("snow_1h", 0) if weather else 0
-        wind_speed = weather.get("wind_speed", 0) if weather else 0
-        temp = weather.get("temp", 0) if weather else 0
-        event_risk = 1.0 if events else 0.0
-
-        hour = datetime.now().hour
-        is_weekend = datetime.now().weekday() >= 5
-
-        features = {
-            "duration_min": float(duration_min),
-            "buffer_min": float(buffer_min),
-            "num_transfers": int(num_transfers),
-            "rain_1h": float(rain_1h),
-            "snow_1h": float(snow_1h),
-            "wind_speed": float(wind_speed),
-            "temp": float(temp),
-            "event_risk": float(event_risk),
-            "hour": int(hour),
-            "is_weekend": bool(is_weekend),
-        }
-
-        ml_output = score_route(features)
-
-        return {
-            "mode": "google_transit_fallback",
-            "origin_gtfs_stop": origin_stop,
-            "destination_gtfs_stop": dest_stop,
-            "walk_to_stop": [],
-            "transit": [],
-            "walk_to_destination": [],
-            "geometry": google_geom,
-            "weather": weather,
-            "events_nearby": events,
-            "on_time_probability": ml_output.get("prob_on_time"),
-            "expected_delay_min": ml_output.get("expected_delay_min"),
-            "ml_features_used": features,
-        }
+        return {"error": "No route found by the local RAPTOR transit engine."}
 
     # ----------------- NORMAL RAPTOR FLOW --------------------------
     # RAPTOR geometry (stops along the route)
@@ -284,7 +213,7 @@ def plan_transit_full(req: PlanTransitRequest):
     print("[DEBUG] walk3_latlon points:", len(walk3_latlon))
 
     # WEATHER + EVENTS (now that geometry exists)
-    weather = format_weather(get_weather_and_alerts(req.origin.lat, req.origin.lon))
+    weather = get_optional_weather(req.origin.lat, req.origin.lon)
     full_geometry = walk1_latlon + transit_geometry + walk3_latlon
     print("[DEBUG] full_geometry points:", len(full_geometry))
 
@@ -336,84 +265,56 @@ def plan_transit_full(req: PlanTransitRequest):
     }
 
 
-# ------------------------- GOOGLE DIRECTIONS PROXY ------------------------
-@app.get("/google_directions")
-def google_directions_proxy(
-    origin: str, destination: str, mode: str = "driving", alternatives: str = "false"
+@app.get("/osm_directions")
+def osm_directions(
+    origin: str,
+    destination: str,
+    mode: str = "driving",
+    alternatives: bool = False,
 ):
-    api_key = os.getenv("GOOGLE_MAPS_API_KEY")
-    if not api_key:
-        print("❌ Missing GOOGLE_MAPS_API_KEY")
-        return {"routes": [], "error": "missing_api_key"}
-
-    url = "https://maps.googleapis.com/maps/api/directions/json"
-    params = {
-        "origin": origin,
-        "destination": destination,
-        "mode": mode,
-        "alternatives": alternatives,
-        "key": api_key,
-    }
-
-    r = requests.get(url, params=params)
-    data = r.json()
-
-    if data.get("status") != "OK" or not data.get("routes"):
-        return {"status": data.get("status"), "routes": []}
-
-    # --- Decode geometry for map + events + ML ---
-    coords = polyline.decode(data["routes"][0]["overview_polyline"]["points"])
-    geometry = [{"lat": lat, "lon": lon} for lat, lon in coords]
-
-    # --- Extract origin/destination lat/lon ---
     origin_lat, origin_lon = map(float, origin.split(","))
-    dest_lat, dest_lon = map(float, destination.split(","))
+    destination_lat, destination_lon = map(float, destination.split(","))
+    costing = {
+        "driving": "auto",
+        "walking": "pedestrian",
+        "bicycling": "bicycle",
+    }.get(mode, "auto")
 
-    # --- Weather ---
-    raw_weather = get_weather_and_alerts(origin_lat, origin_lon)
-    weather = format_weather(raw_weather)
-
-    # --- Events along route ---
-    events = events_near_route([(p["lat"], p["lon"]) for p in geometry])
-
-    # --- ML scoring ---
-    duration_sec = data["routes"][0]["legs"][0]["duration"]["value"]
-    duration_min = duration_sec / 60.0 if duration_sec is not None else 0.0
-
-    rain_1h = weather.get("rain_1h", 0) if weather else 0
-    snow_1h = weather.get("snow_1h", 0) if weather else 0
-    wind_speed = weather.get("wind_speed", 0) if weather else 0
-    temp = weather.get("temp", 0) if weather else 0
-    event_risk = 1.0 if len(events) > 0 else 0.0
-
-    features = {
-        "duration_min": float(duration_min),
-        "buffer_min": 5.0,
-        "num_transfers": 0,
-        "rain_1h": float(rain_1h),
-        "snow_1h": float(snow_1h),
-        "wind_speed": float(wind_speed),
-        "temp": float(temp),
-        "event_risk": float(event_risk),
-        "hour": datetime.now().hour,
-        "is_weekend": datetime.now().weekday() >= 5,
+    payload = {
+        "locations": [
+            {"lat": origin_lat, "lon": origin_lon},
+            {"lat": destination_lat, "lon": destination_lon},
+        ],
+        "costing": costing,
+        "alternates": 2 if alternatives else 0,
+        "directions_options": {"units": "kilometers"},
     }
+    response = requests.post(
+        "https://valhalla1.openstreetmap.de/route",
+        json=payload,
+        timeout=20,
+    )
+    response.raise_for_status()
+    trip = response.json()["trip"]
 
-    ml_out = score_route(features)
+    points = []
+    for leg in trip["legs"]:
+        points.extend(polyline.decode(leg["shape"], precision=6))
+
+    route = {
+        "duration": trip["summary"]["time"],
+        "distance": trip["summary"]["length"] * 1000,
+        "geometry": {
+            "coordinates": [[lon, lat] for lat, lon in points],
+        },
+    }
+    weather = get_optional_weather(origin_lat, origin_lon)
+    events = events_near_route(points)
 
     return {
-        "status": "OK",
-        "geometry": geometry,
-        "routes": data["routes"],
-        "origin_lat": origin_lat,
-        "origin_lon": origin_lon,
-        "destination_lat": dest_lat,
-        "destination_lon": dest_lon,
+        "routes": [route],
         "weather": weather,
         "events_nearby": events,
-        "on_time_probability": ml_out.get("prob_on_time"),
-        "expected_delay_min": ml_out.get("expected_delay_min"),
-        "ml_features_used": features,
     }
 
 

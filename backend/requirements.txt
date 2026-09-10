@@ -3,8 +3,10 @@ uvicorn
 requests
 python-dotenv
 geopandas
+geopy
 networkx
 numpy
 pandas
 shapely
 osmnx
+polyline
