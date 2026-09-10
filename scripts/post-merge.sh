@@ -2,4 +2,4 @@
 set -euo pipefail
 
 python -m pip install --disable-pip-version-check -r backend/requirements.txt
-npm --prefix frontend ci --ignore-scripts
+npm --prefix frontend install --ignore-scripts --no-audit --no-fund
