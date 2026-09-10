@@ -1,0 +1,600 @@
+I want to redesign my existing web app, “BoulderMove – Smart Trip Dashboard,” into a much more modern, polished, production-quality transportation/trip-planning website.
+
+The current application already has:
+- Origin and destination inputs
+- Driving/transit route selection
+- A map
+- Route options
+- Weather information
+- Alternative routes
+- Transit stops
+- Light/dark mode
+
+Do NOT remove the existing core functionality. Instead, completely modernize the UI/UX, improve the information hierarchy, and restructure how trip planning and transit information are displayed.
+
+DESIGN DIRECTION
+
+The website should feel like a modern transportation/navigation product inspired by the clean UX of Google Maps, Apple Maps, Uber, Transit, Linear, and modern SaaS dashboards.
+
+It should NOT look like a basic Bootstrap dashboard.
+
+Avoid:
+- Huge empty cards
+- Excessive borders
+- Too many separate boxes
+- Emoji-based branding
+- Heavy gradients
+- Excessive glassmorphism
+- Oversized buttons
+- Cluttered layouts
+
+Use a clean, minimal, premium design.
+
+Use:
+- Background: #F6F7F9 or a similar very light neutral
+- White primary surfaces
+- Deep Boulder-inspired teal/green as the main accent
+- Very subtle borders
+- Soft shadows
+- 14–18px border radius
+- Generous whitespace
+- Modern typography such as Inter, Geist, or Manrope
+- Clear visual hierarchy
+- Smooth but subtle hover/transition animations
+
+
+1. NAVIGATION BAR
+
+Replace the existing header completely.
+
+Create a modern top navigation bar.
+
+Left:
+- New BoulderMove launcher/logo
+- “BoulderMove” wordmark
+
+Center/left navigation:
+- Plan Trip
+- Saved Trips
+- About
+
+Right:
+- Compact weather indicator such as:
+  ☀ 72° Boulder
+- Small theme/light-dark mode icon button
+- Optional profile/settings icon if appropriate
+
+Remove the large “Dark mode” button.
+
+Remove the live date/time currently displayed in the top-right because it does not contribute much to trip planning.
+
+The navbar should feel lightweight and modern rather than like another large card.
+
+
+2. MAIN PAGE LAYOUT
+
+The trip planner and the map should become the main focus of the application.
+
+Use approximately:
+
+35% width → Trip planner / trip information
+65% width → Map
+
+The map should occupy almost the full available viewport height below the navbar.
+
+Do NOT keep a permanently visible third “Route Options” column.
+
+Instead:
+- Show route information inside the left planner panel once a route is calculated
+OR
+- Use a modern floating/collapsible results card over the map.
+
+Before a route is selected, the interface should feel intentional and clean rather than displaying a large empty results section.
+
+
+3. ORIGIN AND DESTINATION INPUTS
+
+Completely redesign the origin/destination inputs.
+
+Current design:
+Input + separate green “Find” button
+
+Replace this with modern searchable/autocomplete location fields.
+
+Example:
+
+📍 From
+Norlin Library
+
+⇅
+
+🏁 To
+Denver, CO
+
+Include:
+- Search/autocomplete
+- Location suggestions
+- Recent locations if available
+- Current location option if supported
+- Clear-input button
+- Swap origin/destination button between the two fields
+
+Do NOT require a separate “Find” button beside each input.
+
+The search interaction should happen naturally inside the field.
+
+The origin and destination fields should visually feel connected as part of a single trip.
+
+
+4. TRANSPORT MODE SELECTOR
+
+Replace the current “Driving” dropdown with a modern segmented mode selector.
+
+For example:
+
+[ 🚗 Drive ] [ 🚌 Transit ] [ 🚲 Bike ] [ 🚶 Walk ]
+
+The currently selected mode should have a clear but subtle active state.
+
+The selector must work well on both desktop and mobile.
+
+Do not make the buttons unnecessarily large.
+
+
+5. MAIN ROUTE ACTION
+
+Below the destination and transportation mode, create one clear primary CTA such as:
+
+“Find best route →”
+
+or
+
+“Plan my trip →”
+
+Use the Boulder deep teal/green accent for this primary action.
+
+Only major actions should use the strong accent color.
+
+
+6. ADVANCED OPTIONS
+
+Move less-important settings such as:
+
+- Show alternative routes
+- Route preferences
+- Avoid tolls/highways if applicable
+- Accessibility options if applicable
+
+into a collapsible section:
+
+“Advanced options”
+
+This should keep the default UI clean.
+
+
+7. WEATHER
+
+Remove the existing full-width “Show today’s weather” button.
+
+Instead, weather should feel naturally integrated into the app.
+
+For example:
+
+☀ 72°
+Boulder
+Clear
+
+This can appear:
+- In the navigation bar
+- Or as a small compact card near the planner
+
+If weather affects the trip, additional contextual information could appear such as:
+
+“Clear conditions — no weather delays expected.”
+
+Keep this small and useful.
+
+
+8. ROUTE RESULTS
+
+After a route is calculated, replace generic route information with visually useful route cards.
+
+Example:
+
+RECOMMENDED
+
+42 min
+Norlin Library → Denver
+
+29.4 mi
+
+Leave 11:50 AM
+Arrive 12:32 PM
+
+Normal traffic
+
+The recommended route should be visually emphasized.
+
+Alternative routes can appear underneath:
+
+47 min
+via US-36
+
+51 min
+via CO-93
+
+Allow clicking a route card to highlight that route on the map.
+
+Route cards should include only useful information and remain visually clean.
+
+
+9. ROUTE FILTERS
+
+Instead of showing “Best on-time / Shortest / Fewest transfers” as small disconnected pills in a separate panel, integrate them into the route results area.
+
+For transit routes, use a modern compact segmented filter such as:
+
+[ Recommended ] [ Fastest ] [ Fewer transfers ]
+
+For driving:
+
+[ Recommended ] [ Fastest ] [ Shortest ]
+
+The filter should adapt depending on the selected transportation mode.
+
+
+10. TRANSIT ROUTE REDESIGN
+
+The transit mode needs a significant redesign.
+
+Currently, transit stops should NOT simply appear as a basic list of station names.
+
+Create a modern transit journey timeline.
+
+Example:
+
+11:48 AM
+● Norlin Library
+│
+│ Walk 4 min
+│
+11:52 AM
+● Broadway & Euclid
+│
+│ 🚌 FF1 · Union Station
+│ 12 stops · 31 min
+│
+12:23 PM
+● US 36 & Broomfield
+│
+│ Transfer · 5 min
+│
+12:28 PM
+● US 36 & Sheridan
+│
+│ 🚌 Route 120X
+│ 4 stops · 12 min
+│
+12:40 PM
+● Denver
+
+The transit journey should clearly distinguish:
+
+- Walking sections
+- Bus/train sections
+- Transfers
+- Stops
+- Waiting time
+- Departure time
+- Arrival time
+- Transit line/route number
+- Number of stops
+- Estimated duration
+- Platform information if available
+
+Use a vertical timeline UI with route-colored lines/dots.
+
+IMPORTANT:
+Do not display every stop by default if there are many stops.
+
+Instead show something like:
+
+🚌 FF1
+Broadway & Euclid → Union Station
+31 min · 12 stops
+
+[ View 12 stops ▾ ]
+
+When “View stops” is clicked, smoothly expand the timeline to reveal individual stops.
+
+Example expanded state:
+
+Broadway & Euclid
+Baseline Rd
+Table Mesa Station
+McCaslin Station
+Broomfield Station
+...
+Union Station
+
+Use small stop dots connected by a vertical line.
+
+Major stops and transfer stations should use larger dots.
+
+Minor intermediate stops should use smaller dots.
+
+The active/current stop can be highlighted.
+
+This needs to look much more refined than a plain text stop list.
+
+
+11. TRANSIT LINE CARDS
+
+Each transit segment should have its own compact card.
+
+Example:
+
+🚌 FF1
+Flatiron Flyer
+
+Broadway & Euclid
+↓
+Union Station
+
+31 min
+12 stops
+
+Depart 11:52 AM
+
+Use an appropriate transit-line badge containing “FF1”.
+
+Walking segments should look different:
+
+🚶 Walk
+4 min · 0.2 mi
+
+Transfers should have their own subtle indicator:
+
+Transfer
+5 min wait
+
+The user should immediately understand the journey without needing to read large amounts of text.
+
+
+12. MAP REDESIGN
+
+Make the map substantially larger.
+
+It should fill most of the right-hand side of the viewport.
+
+Improve map interaction and appearance with:
+
+- Floating zoom controls
+- Current-location button
+- Fit-route button
+- Clearly visible route polyline
+- Different styling for alternative routes
+- Origin marker
+- Destination marker
+- Transit stop markers
+- Transfer station markers
+
+For transit:
+- Transit stops should correspond visually with the timeline
+- Hovering/selecting a stop in the timeline should highlight its map marker
+- Selecting a map stop should highlight that stop in the timeline
+
+Use clearer line weights for routes.
+
+The selected route should be strongly visible while alternative routes should be muted.
+
+
+13. MAP ROUTE SUMMARY
+
+Consider adding a small floating collapsible card over the bottom of the map after route calculation.
+
+Example:
+
+42 min · 29.4 mi
+
+Norlin Library
+→
+Denver
+
+[ View details ]
+
+This should not cover too much of the map.
+
+
+14. EMPTY STATE
+
+Before the user creates a trip, do not show a huge blank “Route Options” card.
+
+Instead use a subtle empty state inside the planner such as:
+
+“Where are you heading?”
+
+Plan a trip to see travel times, route options, traffic and transit information.
+
+The map should remain visible and useful.
+
+
+15. LAUNCHER / LOGO / FAVICON
+
+Replace the current bus emoji branding completely.
+
+Create a professional BoulderMove visual identity.
+
+Design a launcher icon that works for:
+
+- Navbar logo
+- Browser favicon
+- PWA launcher
+- Mobile home-screen icon
+- 32px icon
+- 64px icon
+- 192px icon
+- 512px icon
+
+Design direction:
+
+Rounded-square deep Boulder green/teal background.
+
+Inside:
+A minimal white route/road symbol forming or subtly suggesting the letter “B”.
+
+Integrate a small location-pin element into the road design.
+
+The icon should remain recognizable at very small sizes.
+
+Do NOT put the word “BoulderMove” inside the launcher icon.
+
+The navbar should show:
+
+[icon] BoulderMove
+
+The launcher itself should only contain the symbol.
+
+Use a simple vector-style logo rather than an emoji.
+
+
+16. RESPONSIVE DESIGN
+
+Desktop:
+35% planner / 65% map.
+
+Tablet:
+Planner can shrink while map remains prominent.
+
+Mobile:
+The map should fill most of the screen.
+
+The trip planner/results should become a draggable or expandable bottom sheet similar to modern navigation applications.
+
+Example mobile structure:
+
+NAVBAR
+
+MAP
+MAP
+MAP
+MAP
+
+────────────
+Drag handle
+Plan your trip
+
+From
+To
+Mode
+
+Route information
+────────────
+
+Make sure nothing becomes cramped or requires horizontal scrolling.
+
+
+17. DARK MODE
+
+Keep dark mode but redesign it properly.
+
+Dark mode should use:
+- Near-black/slate backgrounds
+- Slightly lighter elevated surfaces
+- Good text contrast
+- Muted borders
+- Same Boulder teal/green accent
+
+The map should ideally switch to a compatible darker appearance where possible.
+
+Dark mode should feel intentionally designed instead of simply inverting colors.
+
+
+18. INTERACTIONS
+
+Add polished micro-interactions:
+
+- Smooth route-card hover
+- Selected route state
+- Smooth autocomplete dropdown
+- Expand/collapse transit stops animation
+- Smooth Advanced Options expansion
+- Swap-origin/destination animation
+- Button hover/pressed states
+- Loading skeleton while calculating routes
+
+Do not make animations distracting.
+
+
+19. LOADING STATE
+
+When calculating a route, do not freeze the interface or only display plain text.
+
+Use skeleton loaders such as:
+
+████████
+████████████
+██████
+
+or a subtle progress indicator with:
+
+“Finding your best route…”
+
+Then transition smoothly into route results.
+
+
+20. ACCESSIBILITY
+
+Ensure:
+- Strong contrast
+- Keyboard accessible controls
+- Visible focus states
+- Semantic labels
+- Appropriate ARIA labels
+- Icons are accompanied by accessible labels
+- Information is never conveyed using color alone
+- Buttons have sufficient touch targets
+
+
+21. IMPORTANT FUNCTIONAL REQUIREMENT
+
+Preserve the existing application logic wherever possible.
+
+Do not redesign the UI in a way that breaks:
+- Route calculation
+- Origin/destination search
+- Map rendering
+- Weather API
+- Driving routes
+- Transit routes
+- Alternative routes
+- Existing backend/API communication
+
+Refactor the frontend structure where required, but maintain compatibility with the current backend.
+
+Before deleting or replacing existing code, identify what functionality it currently provides.
+
+Reuse working logic whenever possible instead of unnecessarily rewriting the backend.
+
+
+22. FINAL GOAL
+
+The final product should feel like a real modern transportation application rather than a student-project dashboard.
+
+The visual hierarchy should be:
+
+1. Where am I going?
+2. How am I travelling?
+3. What is my best route?
+4. What happens along that route?
+5. Show me that route clearly on the map.
+
+The design should feel clean, spacious, intuitive and professional.
+
+The map and trip itself should be the focus — not cards, borders or dashboard containers.
+
+Please redesign the current application according to these requirements while preserving its working functionality.
+
+Also reorganize/refactor the frontend code so that components are reusable and easy to maintain.
+
+For the transit-stop interface in particular, spend extra attention on creating a polished expandable journey timeline rather than a simple list of stops.

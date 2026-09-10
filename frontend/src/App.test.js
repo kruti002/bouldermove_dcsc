@@ -177,7 +177,6 @@ describe('route recovery states', () => {
     });
 
     render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
     await selectLocations();
     await waitFor(() => expect(pendingRoutes).toHaveLength(1));
 
@@ -249,7 +248,6 @@ describe('route recovery states', () => {
     });
 
     render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
     await selectLocations();
     await waitFor(() => expect(resolveDrivingRoute).toBeDefined());
 
@@ -289,7 +287,6 @@ describe('route recovery states', () => {
     });
 
     render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
     await selectLocations();
 
     expect(await screen.findByText('Finding routes…')).toBeInTheDocument();
@@ -332,7 +329,6 @@ describe('route recovery states', () => {
     });
 
     render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
     await selectLocations();
 
     expect(
@@ -388,7 +384,6 @@ describe('location search failures', () => {
     });
 
     render(<App />);
-    fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
     fireEvent.change(screen.getByPlaceholderText('Origin'), {
       target: { value: 'Unavailable place' },
     });
@@ -397,7 +392,6 @@ describe('location search failures', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(message);
     expect(screen.getByPlaceholderText('Destination')).toBeEnabled();
     expect(screen.getByRole('combobox', { name: 'Travel mode' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: /show today’s weather/i })).toBeEnabled();
     expect(
       fetchMock.mock.calls.some(([url]) =>
         /\/(?:osm_directions|plan_transit_full)/.test(String(url))
@@ -475,7 +469,6 @@ test('maps OSM directions to alternatives, complete coordinates, and endpoint ma
   });
 
   render(<App />);
-  fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
   fireEvent.click(screen.getByLabelText('Show alternative routes'));
   await selectLocations();
 
@@ -551,7 +544,6 @@ test('renders the complete RAPTOR geometry and transit stop list', async () => {
   });
 
   render(<App />);
-  fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
   await selectLocations();
   fireEvent.change(screen.getByRole('combobox', { name: 'Travel mode' }), {
     target: { value: 'transit' },
@@ -625,13 +617,11 @@ test('shows a usable route when optional weather and event data are unavailable'
   });
 
   render(<App />);
-  fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
   await selectLocations();
 
   await waitFor(() => {
     expect(screen.getByText('Route A — driving route')).toBeInTheDocument();
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Show today’s weather' }));
 
   expect(
     screen.getByText('Weather data unavailable for this route.')

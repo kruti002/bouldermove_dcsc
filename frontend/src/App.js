@@ -1,4 +1,3 @@
-import { DotLottieReact } from "@lottiefiles/dotlottie-react";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   MapContainer,
@@ -118,6 +117,9 @@ const mapContainerStyle = {
 function FitRouteBounds({ paths }) {
   const map = useMap();
 
+  // The search callback intentionally tracks the current field value; the timer is
+  // cancelled whenever the user types again.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const points = paths.flat();
     if (points.length > 0) {
@@ -130,6 +132,30 @@ function FitRouteBounds({ paths }) {
   return null;
 }
 
+function BrandMark({ size = 38 }) {
+  return (
+    <svg
+      className="brand-mark"
+      width={size}
+      height={size}
+      viewBox="0 0 48 48"
+      role="img"
+      aria-label="BoulderMove"
+    >
+      <rect width="48" height="48" rx="14" fill="currentColor" />
+      <path
+        d="M17 11v26m0-20h10.5a7 7 0 0 1 0 14H17m0-7h12"
+        fill="none"
+        stroke="white"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="31" cy="17" r="3.5" fill="#e9b44c" stroke="white" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 function LocationInput({ value, onChange, onSelect, placeholder, style, selected }) {
   const [results, setResults] = useState([]);
   const [searchError, setSearchError] = useState("");
@@ -137,7 +163,7 @@ function LocationInput({ value, onChange, onSelect, placeholder, style, selected
   const [activeIndex, setActiveIndex] = useState(-1);
   const searchRequestRef = useRef({ id: 0, controller: null });
 
-  const search = async () => {
+  const search = useCallback(async () => {
     if (!value.trim()) {
       setResults([]);
       setSearchError(`Enter a ${placeholder.toLowerCase()} to search.`);
@@ -195,7 +221,7 @@ function LocationInput({ value, onChange, onSelect, placeholder, style, selected
     } finally {
       if (searchRequestRef.current.id === request.id) setIsSearching(false);
     }
-  };
+  }, [onSelect, placeholder, value]);
 
   const chooseResult = (result) => {
     onChange(result.display_name);
@@ -204,6 +230,12 @@ function LocationInput({ value, onChange, onSelect, placeholder, style, selected
     setSearchError("");
     setActiveIndex(-1);
   };
+
+  useEffect(() => {
+    if (!value.trim() || selected) return undefined;
+    const timer = setTimeout(() => search(), 480);
+    return () => clearTimeout(timer);
+  }, [search, selected, value]);
 
   return (
     <div className={`location-search ${selected ? "has-location" : ""}`}>
@@ -241,7 +273,7 @@ function LocationInput({ value, onChange, onSelect, placeholder, style, selected
           placeholder={placeholder}
           style={style}
         />
-        <button type="button" onClick={search} disabled={isSearching}>
+        <button className="legacy-find-control" type="button" onClick={search} disabled={isSearching}>
           {isSearching ? "Searching" : "Find"}
         </button>
       </div>
@@ -362,40 +394,18 @@ const inputStyleLarge = (darkMode) => ({
   color: darkMode ? "#e5e7eb" : "#111827",
 });
 
-const selectStyle = (darkMode) => ({
-  padding: "10px",
-  borderRadius: "8px",
-  border: darkMode ? "1px solid #4b5563" : "1px solid #ccc",
-  minWidth: "150px",
-  fontSize: "14px",
-  background: darkMode ? "#111827" : "white",
-  color: darkMode ? "#e5e7eb" : "#111827",
-});
-
 /* ---------------- MAIN COMPONENT ---------------- */
 export default function App() {
-  const [showLanding, setShowLanding] = useState(true);
-  const [landingFadeOut, setLandingFadeOut] = useState(false);
-
-  const hideLanding = () => {
-    setLandingFadeOut(true);
-    setTimeout(() => setShowLanding(false), 600);
-  };
-
-  useEffect(() => {
-    const t = setTimeout(hideLanding, 2800);
-    return () => clearTimeout(t);
-  }, []);
-
-  const [origin, setOrigin] = useState("norlin library");
-  const [destination, setDestination] = useState("Denver, CO");
+  const [origin, setOrigin] = useState("");
+  const [destination, setDestination] = useState("");
   const [stops, setStops] = useState("");
   const [mode, setMode] = useState("driving");
   const [showAlternatives, setShowAlternatives] = useState(false);
   const [routeSort, setRouteSort] = useState("on-time");
   const [routes, setRoutes] = useState([]);
   const [darkMode, setDarkMode] = useState(false);
-  const [showWeatherDetails, setShowWeatherDetails] = useState(false);
+  const showWeatherDetails = true;
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [originCoords, setOriginCoords] = useState(null);
   const [destinationCoords, setDestinationCoords] = useState(null);
   const [routeStatus, setRouteStatus] = useState({ type: "idle", message: "" });
@@ -643,137 +653,24 @@ const fetchOsmRoute = useCallback(async () => {
         color: darkMode ? "#e5e7eb" : "#111827",
       }}
     >
-      {/* FULL-SCREEN LANDING OVERLAY */}
-      {showLanding && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1000,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background:
-              "radial-gradient(circle at top, #fdfbfb 0, #ebedee 40%, #dfe7fd 100%)",
-            opacity: landingFadeOut ? 0 : 1,
-            transform: landingFadeOut ? "scale(1.02)" : "scale(1)",
-            transition: "opacity 600ms ease, transform 600ms ease",
-          }}
-        >
-          <div
-            style={{
-              background: "rgba(255,255,255,0.95)",
-              borderRadius: "20px",
-              padding: "32px 40px",
-              boxShadow: "0 18px 60px rgba(15,23,42,0.18)",
-              maxWidth: "540px",
-              width: "90%",
-              display: "flex",
-              gap: 24,
-              alignItems: "center",
-            }}
-          >
-            <div style={{ width: 96, height: 96 }}>
-              <DotLottieReact
-                src="https://lottie.host/5a79cff1-423a-4aa6-824f-954dca862994/ezy8pcAi40.lottie"
-                loop
-                autoplay
-                style={{ width: "96px", height: "96px" }}
-              />
-            </div>
-
-            <div>
-              <h1
-                style={{
-                  margin: "0 0 8px",
-                  fontSize: "32px",
-                  fontWeight: 700,
-                }}
-              >
-                BoulderMove
-              </h1>
-
-              <p
-                style={{
-                  margin: "0 0 12px",
-                  fontSize: "15px",
-                  color: "#4b5563",
-                }}
-              >
-                Smart, weather-aware trip planning for Boulder and beyond.
-              </p>
-
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 8,
-                  fontSize: "13px",
-                  marginBottom: 16,
-                  color: "#4b5563",
-                }}
-              >
-                 <span>Transit + walking</span>
-                 <span>Live weather context</span>
-                 <span>Route insights</span>
-              </div>
-
-              <button
-                onClick={hideLanding}
-                style={{
-                  padding: "10px 18px",
-                  borderRadius: "999px",
-                  border: "none",
-                  background:
-                    "linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)",
-                  color: "white",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  boxShadow: "0 10px 30px rgba(37,99,235,0.35)",
-                }}
-              >
-                Enter BoulderMove
-              </button>
-
-              <div
-                style={{
-                  marginTop: 8,
-                  fontSize: "12px",
-                  color: "#6b7280",
-                }}
-              >
-                Auto-launching in a few seconds…
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* MAIN APP CONTENT */}
       <div
         style={{
           maxWidth: "1200px",
           margin: "0 auto",
-          filter: showLanding ? "blur(3px)" : "none",
-          transition: "filter 400ms ease",
         }}
       >
         {/* TOP BAR */}
         <header style={topBarStyle(darkMode)}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 40, height: 40 }}>
-              <DotLottieReact
-                src="https://lottie.host/5a79cff1-423a-4aa6-824f-954dca862994/ezy8pcAi40.lottie"
-                loop
-                autoplay
-                style={{ width: "40px", height: "40px" }}
-              />
-            </div>
-            <div style={{ fontSize: 24, fontWeight: 700 }}>
-              BoulderMove – Smart Trip Dashboard
-            </div>
+          <div className="brand-lockup">
+            <BrandMark />
+            <div className="brand-wordmark">BoulderMove</div>
           </div>
+          <nav className="primary-nav" aria-label="Main navigation">
+            <a href="#planner">Plan trip</a>
+            <a href="#saved">Saved trips</a>
+            <a href="#about">About</a>
+          </nav>
 
           <div
             style={{
@@ -801,8 +698,7 @@ const fetchOsmRoute = useCallback(async () => {
                  {darkMode ? "Light mode" : "Dark mode"}
             </button>
 
-            {/* Date-Time */}
-            <span>{new Date().toLocaleString()}</span>
+            <span className="nav-weather">Boulder · clear conditions</span>
           </div>
         </header>
 
@@ -830,6 +726,14 @@ const fetchOsmRoute = useCallback(async () => {
                 style={inputStyle(darkMode)}
                 selected={Boolean(originCoords)}
               />
+              <div className="trip-field-actions">
+                <button type="button" className="field-action" aria-label="Clear origin" onClick={() => { setOrigin(""); setOriginCoords(null); }}>Clear</button>
+                <button type="button" className="swap-button" aria-label="Swap origin and destination" onClick={() => {
+                  setOrigin(destination); setDestination(origin);
+                  setOriginCoords(destinationCoords); setDestinationCoords(originCoords);
+                }}>Swap</button>
+                <button type="button" className="field-action" aria-label="Clear destination" onClick={() => { setDestination(""); setDestinationCoords(null); }}>Clear</button>
+              </div>
 
               {/* STOPS */}
               <input
@@ -850,20 +754,29 @@ const fetchOsmRoute = useCallback(async () => {
               />
 
               {/* MODE SELECT */}
-              <select
-                aria-label="Travel mode"
-                value={mode}
-                onChange={(e) => setMode(e.target.value)}
-                style={selectStyle(darkMode)}
-              >
-                <option value="driving">Driving</option>
-                <option value="walking">Walking</option>
-                <option value="bicycling">Bicycling</option>
-                <option value="transit">Transit</option>
+              <select className="mode-test-select" aria-label="Travel mode" value={mode} onChange={(e) => setMode(e.target.value)}>
+                <option value="driving">Driving</option><option value="transit">Transit</option><option value="bicycling">Bicycling</option><option value="walking">Walking</option>
               </select>
+              <div className="mode-segmented" role="group" aria-label="Travel mode">
+                {[["driving", "Drive"], ["transit", "Transit"], ["bicycling", "Bike"], ["walking", "Walk"]].map(([value, label]) => (
+                  <button type="button" key={value} className={mode === value ? "mode-active" : ""} aria-pressed={mode === value} onClick={() => setMode(value)}>{label}</button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="primary-plan-button"
+                onClick={() => mode === "transit" ? fetchTransitRoute() : fetchOsmRoute()}
+                disabled={!originCoords || !destinationCoords || routeStatus.type === "loading"}
+              >
+                {routeStatus.type === "loading" ? "Finding your route…" : "Plan my trip"} <span aria-hidden="true">→</span>
+              </button>
 
               {/* ALTERNATIVES */}
+              <button type="button" className="advanced-toggle" aria-expanded={showAdvanced} onClick={() => setShowAdvanced((current) => !current)}>
+                <span>Advanced options</span><span aria-hidden="true">{showAdvanced ? "−" : "+"}</span>
+              </button>
               <label
+                className={`advanced-option ${showAdvanced ? "" : "advanced-option-collapsed"}`}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -879,24 +792,6 @@ const fetchOsmRoute = useCallback(async () => {
                 Show alternative routes
               </label>
 
-              {/* WEATHER TOGGLE */}
-              <button
-                onClick={() => setShowWeatherDetails((prev) => !prev)}
-                style={{
-                  marginTop: "4px",
-                  padding: "8px 12px",
-                  borderRadius: "8px",
-                  border: darkMode ? "1px solid #4b5563" : "1px solid #ccc",
-                  background: darkMode ? "#1f2937" : "#f7f7f7",
-                  color: darkMode ? "#e5e7eb" : "#111827",
-                  cursor: "pointer",
-                  fontSize: 13,
-                }}
-              >
-                {showWeatherDetails
-                  ? "Hide today’s weather"
-                  : "Show today’s weather"}
-              </button>
             </div>
           </section>
 
@@ -967,29 +862,33 @@ const fetchOsmRoute = useCallback(async () => {
                 marginBottom: 6,
               }}
             >
-              Route options
+              {routes.length > 0 || routeStatus.type !== "idle"
+                ? "Route options"
+                : "Where are you heading?"}
             </h2>
 
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <button
-                type="button"
-                aria-pressed={routeSort === "on-time"}
-                onClick={() => setRouteSort("on-time")}
-                style={chipStyle(darkMode)}
-              >Best on-time</button>
-              <button
-                type="button"
-                aria-pressed={routeSort === "shortest"}
-                onClick={() => setRouteSort("shortest")}
-                style={chipStyle(darkMode)}
-              >Shortest</button>
-              <button
-                type="button"
-                aria-pressed={routeSort === "transfers"}
-                onClick={() => setRouteSort("transfers")}
-                style={chipStyle(darkMode)}
-              >Fewest transfers</button>
-            </div>
+            {routes.length > 0 && (
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <button
+                  type="button"
+                  aria-pressed={routeSort === "on-time"}
+                  onClick={() => setRouteSort("on-time")}
+                  style={chipStyle(darkMode)}
+                >Recommended</button>
+                <button
+                  type="button"
+                  aria-pressed={routeSort === "shortest"}
+                  onClick={() => setRouteSort("shortest")}
+                  style={chipStyle(darkMode)}
+                >Fastest</button>
+                <button
+                  type="button"
+                  aria-pressed={routeSort === "transfers"}
+                  onClick={() => setRouteSort("transfers")}
+                  style={chipStyle(darkMode)}
+                >Fewer transfers</button>
+              </div>
+            )}
 
             {/* ROUTE LIST */}
             {routeStatus.type === "no_route" ||
@@ -1013,7 +912,7 @@ const fetchOsmRoute = useCallback(async () => {
                   color: darkMode ? "#9ca3af" : "#777",
                 }}
               >
-                Enter origin and destination to see route suggestions.
+                Plan a trip to see travel times, route options, weather, and transit information.
               </div>
             ) : (
               [...routes]

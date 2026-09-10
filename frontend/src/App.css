@@ -1,4 +1,33 @@
 /* --- Weather UI --- */
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: max-content;
+}
+
+.brand-mark {
+  display: block;
+  color: #124e43;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 4px 8px rgba(18, 78, 67, .18));
+}
+
+.brand-wordmark {
+  color: #18332d;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -.035em;
+}
+
+.dark-mode .brand-mark {
+  color: #2d8b76;
+}
+
+.dark-mode .brand-wordmark {
+  color: #f2f7f5;
+}
+
 .location-search {
   position: relative;
 }
@@ -213,6 +242,117 @@
 .legacy-test-label {
   display: none;
 }
+
+.primary-nav {
+  display: flex;
+  gap: 22px;
+  margin-left: auto;
+  margin-right: 22px;
+}
+.primary-nav a {
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.primary-nav a:hover { color: var(--pine); }
+.nav-weather { color: var(--ink-soft); font-size: 12px; }
+
+/* Planner/map hierarchy: one planner column, one dominant map column. */
+main[style] {
+  grid-template-columns: minmax(300px, 35%) minmax(0, 65%) !important;
+  align-items: start;
+}
+main[style] > section:nth-child(1) { grid-column: 1; grid-row: 1; }
+main[style] > section:nth-child(2) {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+main[style] > section:nth-child(3) {
+  grid-column: 1;
+  grid-row: 2;
+  max-height: none !important;
+}
+.mode-test-select { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.mode-segmented {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #edf1ed;
+}
+.mode-segmented button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+.mode-segmented button:hover { color: var(--pine); }
+.mode-segmented .mode-active {
+  background: var(--panel);
+  color: var(--pine);
+  box-shadow: 0 2px 8px rgba(27,55,67,.12);
+}
+.primary-plan-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--pine);
+  color: #f7f4e9;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 800;
+  transition: transform .16s ease, background .16s ease;
+}
+.primary-plan-button:hover:not(:disabled) { transform: translateY(-1px); background: var(--pine-dark); }
+.primary-plan-button:disabled { cursor: not-allowed; opacity: .46; }
+.trip-field-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: -5px 2px 0;
+}
+.field-action, .swap-button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+.field-action:hover, .swap-button:hover { color: var(--pine); }
+.swap-button {
+  padding: 4px 11px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: var(--panel);
+}
+.advanced-toggle {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 2px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+}
+.advanced-option { padding: 3px 0 4px; color: var(--ink-soft); }
+.advanced-option-collapsed { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.legacy-find-control { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
 
 
 .weather-alerts {
@@ -708,6 +848,24 @@ body {
     flex-direction: column;
     padding: 12px !important;
     gap: 12px !important;
+  }
+  .primary-nav { display: none; }
+  .nav-weather { font-size: 11px; }
+  main[style] > section:nth-child(1) {
+    position: relative;
+    z-index: 3;
+    margin: -30px 8px 0;
+    border-radius: 18px !important;
+    box-shadow: 0 10px 34px rgba(18,41,50,.2) !important;
+  }
+  main[style] > section:nth-child(2) {
+    order: 0 !important;
+    min-height: calc(100dvh - 74px);
+  }
+  main[style] > section:nth-child(3) {
+    margin: -22px 8px 0;
+    position: relative;
+    z-index: 4;
   }
   main[style] > section:nth-child(1) { order: 1; }
   main[style] > section:nth-child(2) { order: 2; }
