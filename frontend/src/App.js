@@ -39,7 +39,7 @@ async function scoreRouteML(routeFeatures) {
     return { prob_on_time: null, expected_delay_min: null };
   }
 }
-function buildMLFeatures(route, weather) {
+export function buildMLFeatures(route, weather) {
   const nearbyEventCount = Array.isArray(route.events_nearby)
     ? route.events_nearby.length
     : route.events_nearby?.count ?? route.events_nearby?.events?.length ?? 0;
@@ -55,6 +55,46 @@ function buildMLFeatures(route, weather) {
     event_risk: nearbyEventCount > 0 ? 1.0 : 0.0,
     hour: new Date().getHours(),
     is_weekend: [0,6].includes(new Date().getDay()),
+  };
+}
+
+export function buildOsmRoutes(data, mode, originCoords, destinationCoords) {
+  return (data.routes || []).map((route) => ({
+    summary: `${mode} route`,
+    duration_min: Math.round(route.duration / 60),
+    distance_km: Number((route.distance / 1000).toFixed(1)),
+    polylineCoords: route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })),
+    start_location: { lat: originCoords.lat, lng: originCoords.lon },
+    end_location: { lat: destinationCoords.lat, lng: destinationCoords.lon },
+    weather: data.weather || null,
+    alerts: { custom_alerts: data.weather?.custom_alerts || [] },
+    events_nearby: data.events_nearby || [],
+    on_time_probability: null,
+    on_time: null,
+  }));
+}
+
+export function buildTransitRoute(data, body) {
+  return {
+    summary:
+      data.transit?.length > 0
+        ? `Transit via ${data.transit[0].route_id || data.transit[0].trip_id}`
+        : "Walk -> Transit -> Walk",
+    duration_min: null,
+    distance_km: null,
+    polylineCoords: (data.geometry || []).map((point) => ({
+      lat: point.lat,
+      lng: point.lon,
+    })),
+    start_location: { lat: body.origin.lat, lng: body.origin.lon },
+    end_location: { lat: body.destination.lat, lng: body.destination.lon },
+    stops: data.transit?.flatMap((leg) => leg.intermediate_stops || []) || [],
+    weather: data.weather || null,
+    alerts: { custom_alerts: data.weather?.custom_alerts || [] },
+    events_nearby: data.events_nearby || [],
+    transit_raw: data,
+    on_time_probability: data.on_time_probability,
+    on_time: data.on_time,
   };
 }
 
@@ -286,28 +326,12 @@ const fetchOsmRoute = useCallback(async () => {
       return;
     }
 
-    const mappedRoutes = data.routes.map((route) => {
-      const points = route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
-      return {
-        summary: `${mode} route`,
-        duration_min: Math.round(route.duration / 60),
-        distance_km: Number((route.distance / 1000).toFixed(1)),
-        polylineCoords: points,
-        start_location: {
-          lat: originCoords.lat,
-          lng: originCoords.lon,
-        },
-        end_location: {
-          lat: destinationCoords.lat,
-          lng: destinationCoords.lon,
-        },
-        weather: data.weather || null,
-        alerts: { custom_alerts: data.weather?.custom_alerts || [] },
-        events_nearby: data.events_nearby || [],
-        on_time_probability: null,
-        on_time: null,
-      };
-    });
+    const mappedRoutes = buildOsmRoutes(
+      data,
+      mode,
+      originCoords,
+      destinationCoords
+    );
 
   for (let r of mappedRoutes) {
       const features = buildMLFeatures(r, r.weather);
@@ -360,37 +384,7 @@ const fetchOsmRoute = useCallback(async () => {
 
       console.log("DEBUG: Response →", data);
 
-      const routeObj = {
-        summary:
-          data.transit?.length > 0
-            ? `Transit via ${
-                data.transit[0].route_id || data.transit[0].trip_id
-              }`
-             : "Walk -> Transit  -> Walk",
-        duration_min: null,
-        distance_km: null,
-        polylineCoords: (data.geometry || []).map((p) => ({
-          lat: p.lat,
-          lng: p.lon,
-        })),
-        start_location: {
-          lat: body.origin.lat,
-          lng: body.origin.lon,
-        },
-        end_location: {
-          lat: body.destination.lat,
-          lng: body.destination.lon,
-        },
-        stops:
-          data.transit?.flatMap((leg) => leg.intermediate_stops || []) || [],
-        weather: data.weather || null,
-        alerts: { custom_alerts: data.weather?.custom_alerts || [] },
-        events_nearby: data.events_nearby || [],
-        transit_raw: data,
-        on_time_probability: data.on_time_probability,
-        on_time: data.on_time,
-
-      };
+      const routeObj = buildTransitRoute(data, body);
 
       setRoutes([routeObj]);
     } catch (err) {
