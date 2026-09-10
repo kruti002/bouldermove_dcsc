@@ -236,7 +236,7 @@ export default function App() {
         const data = await res.json();
         setServerHealth({
           checked: true,
-          available: data.status === "ok" || data.status === "healthy",
+          available: data.status === "ok" || data.status === "healthy" || data.status === "online",
           modelLoaded: Boolean(data.model_loaded),
           waking: false,
         });
@@ -661,13 +661,66 @@ export default function App() {
   // -------------------------------------------------------------
   // VOICE RECOGNITION & NATURAL SPEECH PROCESSING
   // -------------------------------------------------------------
+  const handleProcessVoiceQuery = async (rawQuery) => {
+    const query = (rawQuery || voiceTranscript || "").trim();
+    if (!query || query.startsWith("Listening")) return;
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {}
+    }
+    setIsListening(false);
+    setVoiceFeedback("Processing your speech and finding best route with XGBoost...");
+
+    try {
+      const res = await fetch(`${backendBaseUrl}/api/parse_query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setOriginText(data.origin.name.split(",")[0]);
+        setOriginCoords({ lat: data.origin.lat, lon: data.origin.lon });
+        setDestText(data.destination.name.split(",")[0]);
+        setDestCoords({ lat: data.destination.lat, lon: data.destination.lon });
+        if (data.mode) setMode(data.mode);
+        if (data.target_time_str) {
+          setScheduleTime(data.target_time_str);
+          setTimeScheduleType("arrive_by");
+        }
+        setVoiceFeedback(data.speech_response);
+
+        // Audio speech synthesis feedback
+        if ("speechSynthesis" in window) {
+          try {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(data.speech_response);
+            utterance.rate = 1.0;
+            window.speechSynthesis.speak(utterance);
+          } catch (e) {
+            console.warn("SpeechSynthesis error:", e);
+          }
+        }
+      } else {
+        setVoiceFeedback("Could not find a route for that spoken query. Try mentioning a specific Boulder location (e.g., Williams Village, Norlin Library, Pearl Street).");
+      }
+    } catch {
+      setVoiceFeedback("Backend query service unreachable. Check server connection.");
+    }
+  };
+
   const handleStartVoice = () => {
+    setShowVoiceModal(true);
+    setVoiceFeedback("");
+    
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert(
-        "Speech recognition is not supported in this browser. Try Chrome or Edge, or use our Slack integration!"
-      );
+      setVoiceTranscript("");
+      setVoiceFeedback("Microphone recognition requires Chrome, Edge, or Safari with HTTPS. You can type or tap an example below!");
+      setIsListening(false);
       return;
     }
 
@@ -679,9 +732,7 @@ export default function App() {
       recognitionRef.current = recognition;
 
       setIsListening(true);
-      setShowVoiceModal(true);
-      setVoiceTranscript("Listening... Speak your trip (e.g. 'I am at Williams Village and want to go to Norlin Library by 9 AM')");
-      setVoiceFeedback("");
+      setVoiceTranscript("");
 
       recognition.onresult = (event) => {
         const transcript = Array.from(event.results)
@@ -693,7 +744,13 @@ export default function App() {
       recognition.onerror = (event) => {
         console.warn("Speech error:", event.error);
         setIsListening(false);
-        setVoiceFeedback(`Voice recognition paused (${event.error})`);
+        if (event.error === "not-allowed" || event.error === "permission-denied") {
+          setVoiceFeedback("Microphone access was blocked. Please allow mic permission in your browser or type below.");
+        } else if (event.error === "no-speech") {
+          setVoiceFeedback("No speech detected. Tap the mic button to try speaking again or edit your query below.");
+        } else {
+          setVoiceFeedback(`Voice recognition notice: ${event.error}. You can type or select an example below.`);
+        }
       };
 
       recognition.onend = () => {
@@ -704,52 +761,12 @@ export default function App() {
     } catch (err) {
       console.error("Mic error:", err);
       setIsListening(false);
+      setVoiceFeedback("Could not start microphone. You can type your request directly below.");
     }
   };
 
-  const handleStopVoiceAndProcess = async () => {
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {}
-    }
-    setIsListening(false);
-
-    if (
-      voiceTranscript &&
-      voiceTranscript.length > 3 &&
-      !voiceTranscript.startsWith("Listening")
-    ) {
-      setVoiceFeedback("Processing your speech and finding best route with XGBoost...");
-      try {
-        const res = await fetch(`${backendBaseUrl}/api/parse_query`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: voiceTranscript }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setOriginText(data.origin.name.split(",")[0]);
-          setOriginCoords({ lat: data.origin.lat, lon: data.origin.lon });
-          setDestText(data.destination.name.split(",")[0]);
-          setDestCoords({ lat: data.destination.lat, lon: data.destination.lon });
-          if (data.mode) setMode(data.mode);
-          setVoiceFeedback(data.speech_response);
-
-          // Audio speech feedback
-          if ("speechSynthesis" in window) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(data.speech_response);
-            utterance.rate = 1.0;
-            window.speechSynthesis.speak(utterance);
-          }
-        } else {
-          setVoiceFeedback("Could not find a route for that spoken query.");
-        }
-      } catch {
-        setVoiceFeedback("Service request failed.");
-      }
-    }
+  const handleStopVoiceAndProcess = () => {
+    handleProcessVoiceQuery(voiceTranscript);
   };
 
   // -------------------------------------------------------------
@@ -1841,9 +1858,20 @@ export default function App() {
                 <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
               </div>
 
-              {/* Transcript Display */}
+              {/* Editable Query Input & Transcript Area */}
               <div className="voice-transcript-bubble">
-                <p className="transcript-text">{voiceTranscript || "Listening for speech..."}</p>
+                <input
+                  type="text"
+                  className="voice-input-field"
+                  placeholder="Speak or type your trip (e.g. 'I am at Williams Village and need to go to Norlin Library by 9 AM')"
+                  value={voiceTranscript}
+                  onChange={(e) => setVoiceTranscript(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleStopVoiceAndProcess();
+                    }
+                  }}
+                />
               </div>
 
               {/* Spoken Response Feedback */}
@@ -1859,25 +1887,34 @@ export default function App() {
                 {isListening ? (
                   <button className="voice-cta-btn listening" onClick={handleStopVoiceAndProcess}>
                     <MicOff size={16} />
-                    <span>Done Speaking & Calculate Route</span>
+                    <span>Done Speaking & Plan Route</span>
                   </button>
                 ) : (
                   <button className="voice-cta-btn ready" onClick={handleStartVoice}>
                     <Mic size={16} />
-                    <span>Tap to Speak Again</span>
+                    <span>Start Speaking 🎙️</span>
                   </button>
                 )}
+                <button
+                  className="voice-plan-btn"
+                  onClick={handleStopVoiceAndProcess}
+                  disabled={!voiceTranscript.trim()}
+                >
+                  <Navigation size={16} />
+                  <span>Plan Route</span>
+                </button>
               </div>
 
               {/* Voice Query Examples */}
               <div className="voice-samples-box">
-                <span className="samples-title">Try saying:</span>
+                <span className="samples-title">Try one of these queries:</span>
                 <div className="samples-list">
                   <button
                     className="sample-item"
                     onClick={() => {
-                      setVoiceTranscript("I am at Williams Village and want to go to Norlin Library by 9:00 AM");
-                      handleStopVoiceAndProcess();
+                      const text = "I am at Williams Village and want to go to Norlin Library by 9:00 AM";
+                      setVoiceTranscript(text);
+                      handleProcessVoiceQuery(text);
                     }}
                   >
                     "I am at Williams Village and want to go to Norlin Library by 9:00 AM"
@@ -1885,8 +1922,9 @@ export default function App() {
                   <button
                     className="sample-item"
                     onClick={() => {
-                      setVoiceTranscript("What time should I leave from Pearl Street to CU Boulder?");
-                      handleStopVoiceAndProcess();
+                      const text = "What time should I leave from Pearl Street to CU Boulder?";
+                      setVoiceTranscript(text);
+                      handleProcessVoiceQuery(text);
                     }}
                   >
                     "What time should I leave from Pearl Street to CU Boulder?"
@@ -1894,8 +1932,9 @@ export default function App() {
                   <button
                     className="sample-item"
                     onClick={() => {
-                      setVoiceTranscript("Bike from Chautauqua to 29th Street Mall");
-                      handleStopVoiceAndProcess();
+                      const text = "Bike from Chautauqua to 29th Street Mall";
+                      setVoiceTranscript(text);
+                      handleProcessVoiceQuery(text);
                     }}
                   >
                     "Bike from Chautauqua to 29th Street Mall"
