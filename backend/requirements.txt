@@ -13,3 +13,4 @@ polyline
 xgboost
 joblib
 scikit-learn
+python-multipart
