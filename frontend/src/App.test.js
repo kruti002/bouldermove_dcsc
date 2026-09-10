@@ -127,6 +127,97 @@ async function selectLocations() {
   );
 }
 
+function mockLocationSearch(requestUrl) {
+  const query = new URL(requestUrl).searchParams.get('q');
+  const isDestination = query === 'Destination';
+  return Promise.resolve({
+    ok: true,
+    json: async () => [
+      {
+        place_id: isDestination ? 2 : 1,
+        display_name: `${query} result`,
+        lat: isDestination ? '40.2' : '40',
+        lon: isDestination ? '-105.2' : '-105',
+      },
+    ],
+  });
+}
+
+describe('route recovery states', () => {
+  test('shows loading and then a distinct no-route message', async () => {
+    let resolveRoute;
+    jest.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes('nominatim.openstreetmap.org')) {
+        return mockLocationSearch(requestUrl);
+      }
+      if (requestUrl.includes('/osm_directions')) {
+        return new Promise((resolve) => {
+          resolveRoute = resolve;
+        });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
+    await selectLocations();
+
+    expect(await screen.findByText('Finding routes…')).toBeInTheDocument();
+
+    resolveRoute({
+      ok: true,
+      json: async () => ({
+        routes: [],
+        error: {
+          code: 'no_route',
+          message: 'No route connects those locations for the selected travel mode.',
+        },
+      }),
+    });
+
+    expect((await screen.findAllByText('No route found')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Routing service unavailable')).not.toBeInTheDocument();
+  });
+
+  test('shows provider failure and retry issues a new route request', async () => {
+    let routeRequests = 0;
+    jest.spyOn(global, 'fetch').mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes('nominatim.openstreetmap.org')) {
+        return mockLocationSearch(requestUrl);
+      }
+      if (requestUrl.includes('/osm_directions')) {
+        routeRequests += 1;
+        return Promise.resolve({
+          ok: false,
+          json: async () => ({
+            error: {
+              code: 'provider_failure',
+              message: 'The road routing service is temporarily unavailable.',
+            },
+          }),
+        });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
+    await selectLocations();
+
+    expect(
+      (await screen.findAllByText('Routing service unavailable')).length
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText('No route found')).not.toBeInTheDocument();
+    expect(routeRequests).toBe(1);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Try again' })[0]);
+
+    await waitFor(() => expect(routeRequests).toBe(2));
+  });
+});
+
 describe('location search failures', () => {
   test.each([
     {

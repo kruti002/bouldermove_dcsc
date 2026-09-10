@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import Mock, patch
 
@@ -8,8 +9,9 @@ import combined_router as router
 
 
 class FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200):
         self.payload = payload
+        self.status_code = status_code
 
     def raise_for_status(self):
         return None
@@ -19,6 +21,114 @@ class FakeResponse:
 
 
 class CombinedRouterContractTests(unittest.TestCase):
+    def test_osm_no_route_response_contract(self):
+        with patch.object(
+            router.requests,
+            "post",
+            return_value=FakeResponse({}, status_code=404),
+        ):
+            response = router.osm_directions(
+                origin="40,-105",
+                destination="40.2,-105.2",
+            )
+
+        self.assertEqual(response["routes"], [])
+        self.assertEqual(
+            response["error"],
+            {
+                "code": "no_route",
+                "message": "No route connects those locations for the selected travel mode.",
+            },
+        )
+
+    def test_osm_provider_failure_response_contract(self):
+        with patch.object(
+            router.requests,
+            "post",
+            side_effect=router.requests.RequestException("provider down"),
+        ):
+            response = router.osm_directions(
+                origin="40,-105",
+                destination="40.2,-105.2",
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            json.loads(response.body),
+            {
+                "error": {
+                    "code": "provider_failure",
+                    "message": "The road routing service is temporarily unavailable.",
+                }
+            },
+        )
+
+    def test_transit_no_route_response_contract(self):
+        router.stops_gdf = pd.DataFrame(
+            [
+                {"stop_id": "origin-stop", "nearest_node": 10},
+                {"stop_id": "dest-stop", "nearest_node": 20},
+            ]
+        )
+        router.raptor = Mock()
+        router.raptor.plan.return_value = []
+
+        with patch.object(
+            router,
+            "nearest_gtfs_stop",
+            side_effect=["origin-stop", "dest-stop"],
+        ), patch.object(
+            router,
+            "nearest_graph_node",
+            return_value=1,
+        ), patch.object(
+            router.nx,
+            "shortest_path",
+            return_value=[1],
+        ), patch.object(
+            router,
+            "path_to_latlon",
+            return_value=[],
+        ):
+            response = router.plan_transit_full(
+                router.PlanTransitRequest(
+                    origin={"lat": 40.0, "lon": -105.0},
+                    destination={"lat": 40.2, "lon": -105.2},
+                )
+            )
+
+        self.assertEqual(
+            response["error"],
+            {
+                "code": "no_route",
+                "message": "No transit route connects those locations at this time.",
+            },
+        )
+
+    def test_transit_provider_failure_response_contract(self):
+        with patch.object(
+            router,
+            "nearest_gtfs_stop",
+            side_effect=RuntimeError("provider down"),
+        ):
+            response = router.plan_transit_full(
+                router.PlanTransitRequest(
+                    origin={"lat": 40.0, "lon": -105.0},
+                    destination={"lat": 40.2, "lon": -105.2},
+                )
+            )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            json.loads(response.body),
+            {
+                "error": {
+                    "code": "provider_failure",
+                    "message": "The transit routing service is temporarily unavailable.",
+                }
+            },
+        )
+
     def test_osm_directions_maps_geometry_and_alternatives(self):
         primary_shape = polyline.encode(
             [(40.0, -105.0), (40.1, -105.1), (40.2, -105.2)],
