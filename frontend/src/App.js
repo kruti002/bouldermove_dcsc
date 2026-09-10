@@ -1,3 +1,2 @@
-import App, { buildMLFeatures } from "./App.jsx";
-export { buildMLFeatures };
+import App from "./App.jsx";
 export default App;

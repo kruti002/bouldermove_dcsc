@@ -1,70 +1,54 @@
-**/__pycache__/
-**/.env
-**/node_modules
-**/package-lock.json
-**/package.json
-**/cache
-**/venv
-**/colorado.osm.pbf
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-*.iml
-
-########################
 # Python
-########################
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-
-# Virtual environments
+.Python
+env/
 venv/
 .venv/
-env/
 ENV/
 
-########################
-# Environment / secrets
-########################
+# Environment / Secrets (Never commit API keys)
 .env
 .env.*
 *.env
+backend/.env
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.production.local
 
-########################
-# Data and model artifacts
-########################
+# Node.js & Vite Frontend
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+frontend/build/
+.npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Data, Raw GTFS & OSM
 data/
-*.joblib
+backend/data/
 *.pkl
 *.pickle
 *.h5
 *.ckpt
 *.log
 
-# Specific backend model files
-backend/route_on_time_model.joblib
-backend/feature_cols.joblib
-backend/route_on_time_model.json
+# Allow saved production XGBoost model
+!backend/models/
+!backend/models/**
 
-# Throwaway / backup files
-backend/oombined_router.py
-
-########################
-# Node / React (frontend)
-########################
-node_modules/
-frontend/node_modules/
-frontend/build/
-frontend/.env.local
-frontend/.env.development.local
-frontend/.env.production.local
-frontend/.env.test.local
-
-########################
-# Caches / misc
-########################
+# System & IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.iml
 .cache/
 .pytest_cache/

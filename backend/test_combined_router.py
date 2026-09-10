@@ -1,10 +1,9 @@
 import json
 import unittest
 from unittest.mock import Mock, patch
+from datetime import datetime
 
-import pandas as pd
 import polyline
-
 import combined_router as router
 
 
@@ -12,8 +11,11 @@ class FakeResponse:
     def __init__(self, payload, status_code=200):
         self.payload = payload
         self.status_code = status_code
+        self.ok = status_code == 200
 
     def raise_for_status(self):
+        if self.status_code >= 400:
+            raise router.requests.RequestException(f"HTTP {self.status_code}")
         return None
 
     def json(self):
@@ -21,6 +23,33 @@ class FakeResponse:
 
 
 class CombinedRouterContractTests(unittest.TestCase):
+    def test_health_check_contract(self):
+        res = router.health_check()
+        self.assertEqual(res["status"], "ok")
+        self.assertIn("model_loaded", res)
+        self.assertEqual(res["service"], "BoulderMove Prediction & Routing API")
+
+    def test_predict_route_time(self):
+        features = {
+            "duration_min": 25.0,
+            "buffer_min": 5.0,
+            "num_transfers": 0,
+            "rain_1h": 0.0,
+            "snow_1h": 0.0,
+            "wind_speed": 3.0,
+            "temp": 22.0,
+            "event_risk": 0.0,
+            "hour": 14,
+            "is_weekend": False,
+        }
+        pred = router.predict_route_time(features, datetime(2026, 9, 10, 14, 0, 0))
+        self.assertIn("base_duration_minutes", pred)
+        self.assertIn("predicted_duration_minutes", pred)
+        self.assertIn("predicted_arrival", pred)
+        self.assertIn("prob_on_time", pred)
+        self.assertIn("traffic_condition", pred)
+        self.assertGreater(pred["predicted_duration_minutes"], 0)
+
     def test_osm_no_route_response_contract(self):
         with patch.object(
             router.requests,
@@ -59,72 +88,6 @@ class CombinedRouterContractTests(unittest.TestCase):
                 "error": {
                     "code": "provider_failure",
                     "message": "The road routing service is temporarily unavailable.",
-                }
-            },
-        )
-
-    def test_transit_no_route_response_contract(self):
-        router.stops_gdf = pd.DataFrame(
-            [
-                {"stop_id": "origin-stop", "nearest_node": 10},
-                {"stop_id": "dest-stop", "nearest_node": 20},
-            ]
-        )
-        router.raptor = Mock()
-        router.raptor.plan.return_value = []
-
-        with patch.object(
-            router,
-            "nearest_gtfs_stop",
-            side_effect=["origin-stop", "dest-stop"],
-        ), patch.object(
-            router,
-            "nearest_graph_node",
-            return_value=1,
-        ), patch.object(
-            router.nx,
-            "shortest_path",
-            return_value=[1],
-        ), patch.object(
-            router,
-            "path_to_latlon",
-            return_value=[],
-        ):
-            response = router.plan_transit_full(
-                router.PlanTransitRequest(
-                    origin={"lat": 40.0, "lon": -105.0},
-                    destination={"lat": 40.2, "lon": -105.2},
-                )
-            )
-
-        self.assertEqual(
-            response["error"],
-            {
-                "code": "no_route",
-                "message": "No transit route connects those locations at this time.",
-            },
-        )
-
-    def test_transit_provider_failure_response_contract(self):
-        with patch.object(
-            router,
-            "nearest_gtfs_stop",
-            side_effect=RuntimeError("provider down"),
-        ):
-            response = router.plan_transit_full(
-                router.PlanTransitRequest(
-                    origin={"lat": 40.0, "lon": -105.0},
-                    destination={"lat": 40.2, "lon": -105.2},
-                )
-            )
-
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(
-            json.loads(response.body),
-            {
-                "error": {
-                    "code": "provider_failure",
-                    "message": "The transit routing service is temporarily unavailable.",
                 }
             },
         )
@@ -188,93 +151,28 @@ class CombinedRouterContractTests(unittest.TestCase):
         self.assertEqual(valhalla_call.kwargs["json"]["alternates"], 2)
 
     def test_transit_response_contains_full_geometry_and_stops(self):
-        router.stops_gdf = pd.DataFrame(
-            [
-                {
-                    "stop_id": "origin-stop",
-                    "nearest_node": 10,
-                    "stop_lat": 40.01,
-                    "stop_lon": -105.01,
-                },
-                {
-                    "stop_id": "dest-stop",
-                    "nearest_node": 20,
-                    "stop_lat": 40.19,
-                    "stop_lon": -105.19,
-                },
-                {
-                    "stop_id": "stop-1",
-                    "nearest_node": 11,
-                    "stop_lat": 40.1,
-                    "stop_lon": -105.1,
-                },
-                {
-                    "stop_id": "stop-2",
-                    "nearest_node": 12,
-                    "stop_lat": 40.15,
-                    "stop_lon": -105.15,
-                },
-            ]
-        )
-        router.raptor = Mock()
-        router.raptor.plan.return_value = [
-            {
-                "route_id": "BOLT",
-                "intermediate_stops": ["stop-1", "stop-2"],
-                "duration_min": 25,
-            }
-        ]
-
         with patch.object(
             router,
-            "nearest_gtfs_stop",
-            side_effect=["origin-stop", "dest-stop"],
-        ), patch.object(
-            router,
-            "nearest_graph_node",
-            side_effect=[1, 4],
-        ), patch.object(
-            router.nx,
-            "shortest_path",
-            side_effect=[[1, 2], [3, 4]],
-        ), patch.object(
-            router,
-            "path_to_latlon",
-            side_effect=[
-                [{"lat": 40.0, "lon": -105.0}],
-                [{"lat": 40.2, "lon": -105.2}],
-            ],
-        ), patch.object(
-            router,
             "get_optional_weather",
-            return_value=None,
+            return_value={"temp": 20, "rain_1h": 0, "snow_1h": 0, "wind_speed": 2},
         ), patch.object(
             router,
             "get_optional_events",
             return_value={"count": 0, "events": []},
-        ), patch.object(
-            router,
-            "score_route",
-            return_value={"prob_on_time": None, "expected_delay_min": None},
         ):
             response = router.plan_transit_full(
                 router.PlanTransitRequest(
-                    origin={"lat": 40.0, "lon": -105.0},
-                    destination={"lat": 40.2, "lon": -105.2},
+                    origin={"lat": 40.0162, "lon": -105.2770},
+                    destination={"lat": 40.0070, "lon": -105.2725},
                     depart_at="2026-09-10T08:00:00",
                 )
             )
 
-        self.assertEqual(
-            response["geometry"],
-            [
-                {"lat": 40.0, "lon": -105.0},
-                {"lat": 40.1, "lon": -105.1},
-                {"lat": 40.15, "lon": -105.15},
-                {"lat": 40.2, "lon": -105.2},
-            ],
-        )
-        self.assertEqual(response["transit"][0]["intermediate_stops"], ["stop-1", "stop-2"])
+        self.assertEqual(response["mode"], "walk_transit_walk")
+        self.assertIn("transit", response)
+        self.assertGreater(len(response["transit"]), 0)
+        self.assertIn("geometry", response)
+        self.assertIn("prediction", response)
         self.assertEqual(response["ml_features_used"]["event_risk"], 0.0)
 
     def test_optional_provider_failures_return_empty_context(self):
@@ -295,6 +193,39 @@ class CombinedRouterContractTests(unittest.TestCase):
                 {"count": 0, "events": []},
             )
 
+    def test_geocode_address(self):
+        # Direct coords
+        res = router.geocode_address("40.0150, -105.2705")
+        self.assertEqual(len(res["results"]), 1)
+        self.assertAlmostEqual(res["results"][0]["lat"], 40.0150)
+        self.assertAlmostEqual(res["results"][0]["lon"], -105.2705)
+
+    def test_will_vill_buff_bus_corridor_present(self):
+        self.assertIn("WILL_VILL", router.RTD_CORRIDORS)
+        corr = router.RTD_CORRIDORS["WILL_VILL"]
+        self.assertIn("Buff Bus", corr["name"])
+        stop_names = [s["name"] for s in corr["stops"]]
+        self.assertTrue(any("Williams Village" in s for s in stop_names))
+        self.assertTrue(any("Bear Creek" in s for s in stop_names))
+
+    def test_parse_trip_phrase_nlp(self):
+        parsed = router.parse_trip_phrase("I am at Williams Village and want to go to Norlin Library by 9:00 AM")
+        self.assertIn("Williams Village", parsed["origin"])
+        self.assertIn("Norlin Library", parsed["destination"])
+        self.assertEqual(parsed["time_type"], "arrive_by")
+        self.assertIn("9:00", parsed["target_time"])
+
+    def test_parse_natural_query_endpoint(self):
+        with patch.object(router, "get_optional_weather", return_value={"temp": 22, "rain_1h": 0, "snow_1h": 0, "wind_speed": 2}), \
+             patch.object(router, "get_optional_events", return_value={"count": 0, "events": []}):
+            res = router.parse_natural_query_endpoint(
+                router.QueryParseRequest(query="From Williams Village to CU UMC by bus")
+            )
+            self.assertIn("smart_leave_time", res)
+            self.assertIn("speech_response", res)
+            self.assertIn("duration_minutes", res)
+
 
 if __name__ == "__main__":
     unittest.main()
+

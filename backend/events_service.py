@@ -3,9 +3,9 @@ import os
 import requests
 from geopy.distance import distance
 from polyline import decode
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+load_dotenv(find_dotenv())
 
 TICKETMASTER_API_KEY = os.getenv("TICKETMASTER_API_KEY")
 CU_EVENTS_URL = "https://calendar.colorado.edu/api/2/events"
@@ -35,7 +35,7 @@ def fetch_ticketmaster_along_route(polyline_points, radius_km=20):
     }
 
     try:
-        r = requests.get(url, params=params)
+        r = requests.get(url, params=params, timeout=5)
         r.raise_for_status()
         data = r.json()
         events_raw = data.get("_embedded", {}).get("events", [])
@@ -85,23 +85,39 @@ def fetch_ticketmaster_along_route(polyline_points, radius_km=20):
 # -----------------------------------------------------------
 def fetch_cu():
     try:
-        r = requests.get(CU_EVENTS_URL, params={"days": 14})
+        r = requests.get(CU_EVENTS_URL, params={"days": 14}, timeout=5)
         data = r.json()
         events = []
 
         for e in data.get("events", []):
+            if not isinstance(e, dict):
+                continue
             ev = e.get("event", {})
+            if not isinstance(ev, dict):
+                continue
             loc = ev.get("location", {})
+            venue_name = "CU Boulder"
+            lat = 0.0
+            lon = 0.0
+            if isinstance(loc, dict):
+                venue_name = loc.get("name", "CU Boulder")
+                try:
+                    lat = float(loc.get("latitude") or 0)
+                    lon = float(loc.get("longitude") or 0)
+                except (ValueError, TypeError):
+                    pass
+            elif isinstance(loc, str) and loc:
+                venue_name = loc
 
             events.append({
                 "id": f"cu_{ev.get('id', '')}",
                 "name": ev.get("title"),
-                "venue_name": loc.get("name", "CU Boulder"),
+                "venue_name": venue_name,
                 "description": ev.get("description", ""),
                 "date_time": ev.get("localist_start_time"),
                 "url": ev.get("url"),
-                "lat": float(loc.get("latitude", 0)),
-                "lon": float(loc.get("longitude", 0)),
+                "lat": lat,
+                "lon": lon,
                 "capacity": None,
                 "source": "cu_calendar",
             })
@@ -110,33 +126,45 @@ def fetch_cu():
         print("CU fetch error:", ex)
         return []
 
+
 # -----------------------------------------------------------
 # 3. Match events along route using geodesic distance
 # -----------------------------------------------------------
 def events_near_route(polyline_points, max_dist_m=1500):
     """Return events near route within max_dist_m (meters)."""
     if not polyline_points:
-        return []
+        return {"count": 0, "events": []}
 
     all_events = fetch_ticketmaster_along_route(polyline_points)
     all_events.extend(fetch_cu())
 
+    if not all_events:
+        return {"count": 0, "events": []}
+
+    # Sample polyline to avoid excessive geodesic computations
+    step = max(1, len(polyline_points) // 40)
+    sampled_points = polyline_points[::step]
+    if polyline_points[-1] not in sampled_points:
+        sampled_points.append(polyline_points[-1])
+
     final_events = []
     for ev in all_events:
+        if ev["lat"] == 0 or ev["lon"] == 0:
+            continue
         pt_event = (ev["lat"], ev["lon"])
         try:
-            # Check each polyline point
-            for pt_route in polyline_points:
+            for pt_route in sampled_points:
                 pt_poly = (pt_route[0], pt_route[1])
                 d_m = distance(pt_event, pt_poly).meters
                 if d_m <= max_dist_m:
                     ev["distance_from_route_m"] = round(d_m, 1)
                     final_events.append(ev)
                     break
-        except Exception as e:
+        except Exception:
             continue
 
     print(f"[DEBUG] Found {len(final_events)} events along route")
+
 
     return {
         "count": len(final_events),

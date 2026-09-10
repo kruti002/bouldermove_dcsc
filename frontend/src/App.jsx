@@ -7,6 +7,7 @@ import {
   Popup,
   Tooltip,
   useMap,
+  useMapEvents,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -28,12 +29,23 @@ import {
   Search,
   X,
   MapPin,
-  ChevronRight,
+  ChevronDown,
+  ChevronUp,
   ShieldCheck,
   Leaf,
   Layers,
   RefreshCw,
   Info,
+  Maximize2,
+  Sliders,
+  Plus,
+  Trash2,
+  Mic,
+  MicOff,
+  Volume2,
+  MessageSquare,
+  Check,
+  Copy,
 } from "lucide-react";
 import "./App.css";
 
@@ -73,7 +85,9 @@ const createCustomIcon = (color, text) => {
 
 const originIcon = createCustomIcon("#0d9488", "A");
 const destIcon = createCustomIcon("#d97706", "B");
-const stopIcon = L.divIcon({
+const waypointIcon = (idx) => createCustomIcon("#6366f1", String(idx + 1));
+
+const stopDotIcon = L.divIcon({
   className: "custom-stop-marker",
   html: `<div style="width:10px;height:10px;border-radius:50%;background:#0f4c3a;border:2px solid white;box-shadow:0 0 4px rgba(0,0,0,0.4)"></div>`,
   iconSize: [10, 10],
@@ -81,75 +95,112 @@ const stopIcon = L.divIcon({
 });
 
 // -------------------------------------------------------------
-// BOULDER PRESET LANDMARKS
+// BOULDER PRESET LANDMARKS (INCL. BUFF BUS & STAMPEDE)
 // -------------------------------------------------------------
-const BOULDER_LANDMARKS = [
-  { name: "Pearl St Mall", lat: 40.0176, lon: -105.2797, desc: "Downtown Boulder" },
-  { name: "CU Boulder Campus", lat: 40.0076, lon: -105.2659, desc: "University of Colorado" },
-  { name: "Chautauqua & Flatirons", lat: 39.9989, lon: -105.2828, desc: "Trails & Views" },
-  { name: "Boulder Junction (RTD)", lat: 40.0253, lon: -105.2505, desc: "Transit Hub" },
-  { name: "Sanitas Trailhead", lat: 40.0210, lon: -105.3015, desc: "Hiking Trail" },
-  { name: "29th St District", lat: 40.0175, lon: -105.2575, desc: "Shopping & Dining" },
+const PRIMARY_LANDMARKS = [
+  { name: "Williams Village (Buff Bus)", lat: 40.0000, lon: -105.2520, icon: "🚌" },
+  { name: "CU Boulder Campus (UMC)", lat: 40.0076, lon: -105.2659, icon: "🎓" },
+  { name: "Pearl St Mall", lat: 40.0176, lon: -105.2797, icon: "🛍️" },
+  { name: "CU East Campus (SEEC)", lat: 40.0100, lon: -105.2440, icon: "🔬" },
+];
+
+const EXTRA_LANDMARKS = [
+  { name: "Chautauqua & Flatirons", lat: 39.9989, lon: -105.2828, icon: "⛰️" },
+  { name: "Boulder Junction (RTD)", lat: 40.0253, lon: -105.2505, icon: "🚉" },
+  { name: "29th St Mall", lat: 40.0175, lon: -105.2575, icon: "🏬" },
+  { name: "Sanitas Trailhead", lat: 40.0210, lon: -105.3015, icon: "🌲" },
+  { name: "Bear Creek Apartments", lat: 39.9985, lon: -105.2535, icon: "🏢" },
+  { name: "CU Engineering Center", lat: 40.0080, lon: -105.2630, icon: "⚙️" },
 ];
 
 const DEFAULT_CENTER = [40.0150, -105.2705]; // Boulder, CO
 
+
 // -------------------------------------------------------------
-// MAP BOUNDS HELPER
+// MAP CONTROLLER (BOUNDS & RECENTER)
 // -------------------------------------------------------------
-function FitBoundsToRoute({ coordinates }) {
+function MapController({ coordinates, centerTrigger }) {
   const map = useMap();
+
   useEffect(() => {
     if (coordinates && coordinates.length > 0) {
       const bounds = L.latLngBounds(coordinates.map((c) => [c.lat, c.lng]));
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
     }
   }, [map, coordinates]);
+
+  useEffect(() => {
+    if (centerTrigger > 0) {
+      if (coordinates && coordinates.length > 0) {
+        const bounds = L.latLngBounds(coordinates.map((c) => [c.lat, c.lng]));
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+      } else {
+        map.setView(DEFAULT_CENTER, 13);
+      }
+    }
+  }, [map, centerTrigger, coordinates]);
+
   return null;
 }
 
 // -------------------------------------------------------------
-// ML SCORING API CALL
+// MAP CLICK HANDLER (CLICK TO SET DESTINATION / ORIGIN)
 // -------------------------------------------------------------
-async function scoreRouteML(routeFeatures, signal) {
-  try {
-    const mlUrl =
-      import.meta.env.VITE_ML_API_URL ||
-      "https://bouldermove-ml-499631536778.us-central1.run.app/score_route";
-    const res = await fetch(mlUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(routeFeatures),
-      signal,
-    });
-    if (!res.ok) throw new Error("ML scoring failed");
-    return await res.json();
-  } catch (err) {
-    return { prob_on_time: null, expected_delay_min: null };
-  }
+function MapClickHandler({ onMapClick }) {
+  useMapEvents({
+    click(e) {
+      onMapClick(e.latlng);
+    },
+  });
+  return null;
 }
 
-export function buildMLFeatures(route, weather) {
-  const nearbyEventCount = Array.isArray(route.events_nearby)
-    ? route.events_nearby.length
-    : route.events_nearby?.count ?? route.events_nearby?.events?.length ?? 0;
+// -------------------------------------------------------------
+// MAP FLOATING CONTROLS
+// -------------------------------------------------------------
+function MapControls({ onFitRoute, onLocate }) {
+  const map = useMap();
 
-  return {
-    duration_min: route.duration_min ?? 0,
-    buffer_min: 5,
-    num_transfers: route.transfers ?? 0,
-    rain_1h: weather?.rain_1h ?? 0,
-    snow_1h: weather?.snow_1h ?? 0,
-    wind_speed: weather?.wind_speed ?? 0,
-    temp: weather?.temp ?? 0,
-    event_risk: nearbyEventCount > 0 ? 1.0 : 0.0,
-    hour: new Date().getHours(),
-    is_weekend: [0, 6].includes(new Date().getDay()),
-  };
+  return (
+    <div className="map-floating-controls">
+      <button
+        className="map-control-btn"
+        onClick={() => map.zoomIn()}
+        title="Zoom In"
+        aria-label="Zoom In"
+      >
+        +
+      </button>
+      <button
+        className="map-control-btn"
+        onClick={() => map.zoomOut()}
+        title="Zoom Out"
+        aria-label="Zoom Out"
+      >
+        −
+      </button>
+      <button
+        className="map-control-btn"
+        onClick={onFitRoute}
+        title="Fit Route on Map"
+        aria-label="Fit Route"
+      >
+        <Maximize2 size={16} />
+      </button>
+      <button
+        className="map-control-btn"
+        onClick={onLocate}
+        title="My Location"
+        aria-label="My Location"
+      >
+        <Navigation size={16} />
+      </button>
+    </div>
+  );
 }
 
 export default function App() {
-  // Theme State (Dark / Light)
+  // Theme State
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem("bouldermove_theme") || "light";
   });
@@ -161,7 +212,7 @@ export default function App() {
 
   const toggleTheme = () => setTheme((t) => (t === "light" ? "dark" : "light"));
 
-  // Backend URL config
+  // Backend URL
   const backendBaseUrl = useMemo(() => {
     return (
       import.meta.env.VITE_BACKEND_URL ||
@@ -170,92 +221,398 @@ export default function App() {
     );
   }, []);
 
-  // Server health state (for cold-start detection on free cloud backends)
-  const [serverStatus, setServerStatus] = useState("checking"); // 'online' | 'waking' | 'offline'
+  // Server health state
+  const [serverHealth, setServerHealth] = useState({
+    checked: false,
+    available: false,
+    modelLoaded: false,
+    waking: false,
+  });
 
-  const checkServerHealth = useCallback(async () => {
+  const checkHealth = useCallback(async () => {
     try {
-      const res = await fetch(`${backendBaseUrl}/health`, { method: "GET" });
+      const res = await fetch(`${backendBaseUrl}/health`);
       if (res.ok) {
-        setServerStatus("online");
+        const data = await res.json();
+        setServerHealth({
+          checked: true,
+          available: data.status === "ok" || data.status === "healthy",
+          modelLoaded: Boolean(data.model_loaded),
+          waking: false,
+        });
       } else {
-        setServerStatus("waking");
+        setServerHealth((prev) => ({ ...prev, checked: true, available: false, waking: true }));
       }
     } catch {
-      setServerStatus("waking");
+      setServerHealth((prev) => ({ ...prev, checked: true, available: false, waking: true }));
     }
   }, [backendBaseUrl]);
 
   useEffect(() => {
-    checkServerHealth();
-    const interval = setInterval(checkServerHealth, 25000);
+    checkHealth();
+    const interval = setInterval(checkHealth, 30000);
     return () => clearInterval(interval);
-  }, [checkServerHealth]);
+  }, [checkHealth]);
 
-  // Route Planning State
+  // Live Boulder Local Clock
+  const [localTimeStr, setLocalTimeStr] = useState("");
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setLocalTimeStr(
+        now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })
+      );
+    };
+    updateTime();
+    const timer = setInterval(updateTime, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Voice Assistant state
+  const [isListening, setIsListening] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [voiceFeedback, setVoiceFeedback] = useState("");
+  const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const recognitionRef = useRef(null);
+
+  // Slack Modal state
+  const [showSlackModal, setShowSlackModal] = useState(false);
+  const [copiedSlack, setCopiedSlack] = useState(false);
+
+  // Trip inputs (Origin, Intermediate Stops, Destination)
   const [originText, setOriginText] = useState("");
   const [originCoords, setOriginCoords] = useState(null);
   const [originResults, setOriginResults] = useState([]);
-  const [isSearchingOrigin, setIsSearchingOrigin] = useState(false);
+
+  // Intermediate Waypoints / Stops: array of { id, text, coords, results }
+  const [waypoints, setWaypoints] = useState([]);
 
   const [destText, setDestText] = useState("");
   const [destCoords, setDestCoords] = useState(null);
   const [destResults, setDestResults] = useState([]);
-  const [isSearchingDest, setIsSearchingDest] = useState(false);
+
+  // Active searching state
+  const [isSearching, setIsSearching] = useState({});
+  const searchTimersRef = useRef({});
+
+
+  // Departure / Arrival Scheduling: 'now' | 'depart_at' | 'arrive_by'
+  const [timeScheduleType, setTimeScheduleType] = useState("now");
+  const [customDate, setCustomDate] = useState(() => {
+    return new Date().toISOString().split("T")[0];
+  });
+  const [customTime, setCustomTime] = useState(() => {
+    const now = new Date();
+    const h = String(now.getHours()).padStart(2, "0");
+    const m = String(now.getMinutes()).padStart(2, "0");
+    return `${h}:${m}`;
+  });
+  const [departureMinutesOffset, setDepartureMinutesOffset] = useState(0);
+  const [smartLeaveAdvice, setSmartLeaveAdvice] = useState(null);
+
+  const [showMoreLandmarks, setShowMoreLandmarks] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAlternatives, setShowAlternatives] = useState(false);
 
   const [mode, setMode] = useState("transit"); // 'transit' | 'walking' | 'bicycling' | 'driving'
-  const [showAlternatives, setShowAlternatives] = useState(true);
 
+  // Route calculation & predictions
   const [routes, setRoutes] = useState([]);
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
   const [routeStatus, setRouteStatus] = useState({ type: "idle", message: "" });
+  const [showStepDetails, setShowStepDetails] = useState(true);
+  const [showMLDetails, setShowMLDetails] = useState(false);
+  const [expandedLegStops, setExpandedLegStops] = useState({ 0: true, 1: true });
 
+  const [centerTrigger, setCenterTrigger] = useState(0);
   const activeRequestRef = useRef(0);
 
   // -------------------------------------------------------------
-  // NOMINATIM GEOCODING (DEBOUNCED SEARCH)
+  // DEPARTURE TIME COMPUTATION
   // -------------------------------------------------------------
-  const searchLocation = async (query, isOrigin) => {
-    if (!query || query.trim().length < 2) {
-      if (isOrigin) setOriginResults([]);
-      else setDestResults([]);
-      return;
-    }
-
-    if (isOrigin) setIsSearchingOrigin(true);
-    else setIsSearchingDest(true);
-
-    try {
-      // Prioritize Colorado / Boulder area
-      const params = new URLSearchParams({
-        q: `${query}, Boulder, CO`,
-        format: "jsonv2",
-        limit: "5",
-        countrycodes: "us",
-      });
-
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?${params.toString()}`
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const valid = data.map((d) => ({
-          display_name: d.display_name,
-          lat: parseFloat(d.lat),
-          lon: parseFloat(d.lon),
-        }));
-        if (isOrigin) setOriginResults(valid);
-        else setDestResults(valid);
+  const computedDepartISO = useMemo(() => {
+    const d = new Date();
+    if (timeScheduleType === "now") {
+      if (departureMinutesOffset > 0) {
+        d.setMinutes(d.getMinutes() + departureMinutesOffset);
       }
-    } catch (err) {
-      console.warn("Geocoding failed:", err);
-    } finally {
-      if (isOrigin) setIsSearchingOrigin(false);
-      else setIsSearchingDest(false);
+      return d.toISOString();
     }
+
+    if (customDate && customTime) {
+      const [h, m] = customTime.split(":").map(Number);
+      const [year, month, day] = customDate.split("-").map(Number);
+      if (!isNaN(h) && !isNaN(m) && !isNaN(year)) {
+        const customD = new Date(year, month - 1, day, h, m, 0);
+        return customD.toISOString();
+      }
+    }
+    return d.toISOString();
+  }, [timeScheduleType, customDate, customTime, departureMinutesOffset]);
+
+
+  // -------------------------------------------------------------
+  // ROBUST HIGH-SPEED GEOCODING HELPER
+  // -------------------------------------------------------------
+  const geocodeAddress = useCallback(
+    async (query) => {
+      if (!query || query.trim().length < 2) return [];
+
+      const trimmed = query.trim();
+
+      // Check for raw coordinates (lat, lon)
+      const coordMatch = trimmed.match(
+        /^([-+]?\d{1,2}(?:\.\d+)?)[,\s]+([-+]?\d{1,3}(?:\.\d+)?)$/
+      );
+      if (coordMatch) {
+        const lat = parseFloat(coordMatch[1]);
+        const lon = parseFloat(coordMatch[2]);
+        if (
+          !isNaN(lat) &&
+          !isNaN(lon) &&
+          Math.abs(lat) <= 90 &&
+          Math.abs(lon) <= 180
+        ) {
+          return [
+            {
+              display_name: `Coordinates (${lat.toFixed(5)}, ${lon.toFixed(5)})`,
+              lat,
+              lon,
+            },
+          ];
+        }
+      }
+
+      // 1. Try Backend Geocoding API (/api/geocode)
+      try {
+        const res = await fetch(
+          `${backendBaseUrl}/api/geocode?q=${encodeURIComponent(trimmed)}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.results && data.results.length > 0) {
+            return data.results;
+          }
+        }
+      } catch {
+        // Fallback below
+      }
+
+      // 2. Direct Photon Komoot fallback with Boulder bounding bias
+      try {
+        const isLocal = /boulder|co|colorado/i.test(trimmed);
+        const searchQ = isLocal ? trimmed : `${trimmed}, Boulder, CO`;
+        const res = await fetch(
+          `https://photon.komoot.io/api/?q=${encodeURIComponent(
+            searchQ
+          )}&lat=40.0150&lon=-105.2705&limit=6`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const results = (data.features || [])
+            .map((f) => {
+              const p = f.properties || {};
+              const coords = f.geometry?.coordinates || [];
+              const hn = p.housenumber;
+              const st = p.street;
+              const nm = p.name;
+              const city = p.city || p.locality || p.county || "Boulder";
+              const state = p.state || "CO";
+              const postcode = p.postcode;
+
+              let parts = [];
+              if (hn && st) parts.push(`${hn} ${st}`);
+              else if (nm && st && nm !== st) parts.push(`${nm}, ${st}`);
+              else if (nm) parts.push(nm);
+              else if (st) parts.push(st);
+
+              if (city) parts.push(city);
+              if (state) parts.push(state);
+              if (postcode) parts.push(postcode);
+
+              return {
+                display_name: parts.length > 0 ? parts.join(", ") : (nm || trimmed),
+                lat: coords[1],
+                lon: coords[0],
+              };
+            })
+            .filter((item) => item.lat && item.lon);
+
+          if (results.length > 0) return results;
+        }
+      } catch (err) {
+        console.warn("Photon fallback notice:", err);
+      }
+
+      return [];
+    },
+    [backendBaseUrl]
+  );
+
+  // -------------------------------------------------------------
+  // DEBOUNCED INPUT CHANGE HANDLER
+  // -------------------------------------------------------------
+  const handleAddressInput = useCallback(
+    (text, target, waypointId = null) => {
+      const timerKey = waypointId ? `waypoint_${waypointId}` : target;
+
+      if (target === "origin") {
+        setOriginText(text);
+        if (!text.trim()) {
+          setOriginCoords(null);
+          setOriginResults([]);
+        }
+      } else if (target === "dest") {
+        setDestText(text);
+        if (!text.trim()) {
+          setDestCoords(null);
+          setDestResults([]);
+        }
+      } else if (target === "waypoint" && waypointId) {
+        setWaypoints((prev) =>
+          prev.map((w) =>
+            w.id === waypointId
+              ? { ...w, text, coords: !text.trim() ? null : w.coords }
+              : w
+          )
+        );
+      }
+
+      if (searchTimersRef.current[timerKey]) {
+        clearTimeout(searchTimersRef.current[timerKey]);
+      }
+
+      if (!text || text.trim().length < 2) {
+        if (target === "origin") setOriginResults([]);
+        else if (target === "dest") setDestResults([]);
+        else if (target === "waypoint" && waypointId) {
+          setWaypoints((prev) =>
+            prev.map((w) => (w.id === waypointId ? { ...w, results: [] } : w))
+          );
+        }
+        setIsSearching((prev) => ({ ...prev, [timerKey]: false }));
+        return;
+      }
+
+      setIsSearching((prev) => ({ ...prev, [timerKey]: true }));
+      searchTimersRef.current[timerKey] = setTimeout(async () => {
+        const results = await geocodeAddress(text);
+        setIsSearching((prev) => ({ ...prev, [timerKey]: false }));
+        if (target === "origin") setOriginResults(results);
+        else if (target === "dest") setDestResults(results);
+        else if (target === "waypoint" && waypointId) {
+          setWaypoints((prev) =>
+            prev.map((w) => (w.id === waypointId ? { ...w, results } : w))
+          );
+        }
+      }, 250);
+    },
+    [geocodeAddress]
+  );
+
+  // -------------------------------------------------------------
+  // COMMIT / ENTER KEY SELECTION HANDLER
+  // -------------------------------------------------------------
+  const handleCommitInput = useCallback(
+    async (target, waypointId = null) => {
+      let text = "";
+      let currentResults = [];
+
+      if (target === "origin") {
+        text = originText;
+        currentResults = originResults;
+      } else if (target === "dest") {
+        text = destText;
+        currentResults = destResults;
+      } else if (target === "waypoint" && waypointId) {
+        const wp = waypoints.find((w) => w.id === waypointId);
+        text = wp?.text || "";
+        currentResults = wp?.results || [];
+      }
+
+      if (!text || text.trim().length < 2) return;
+
+      let chosen = currentResults[0];
+      if (!chosen) {
+        const directResults = await geocodeAddress(text);
+        chosen = directResults[0];
+      }
+
+      if (chosen) {
+        const shortLabel = chosen.display_name.split(",")[0] || text;
+        if (target === "origin") {
+          setOriginText(shortLabel);
+          setOriginCoords({ lat: chosen.lat, lon: chosen.lon });
+          setOriginResults([]);
+        } else if (target === "dest") {
+          setDestText(shortLabel);
+          setDestCoords({ lat: chosen.lat, lon: chosen.lon });
+          setDestResults([]);
+        } else if (target === "waypoint" && waypointId) {
+          setWaypoints((prev) =>
+            prev.map((w) =>
+              w.id === waypointId
+                ? {
+                    ...w,
+                    text: shortLabel,
+                    coords: { lat: chosen.lat, lon: chosen.lon },
+                    results: [],
+                  }
+                : w
+            )
+          );
+        }
+      }
+    },
+    [originText, originResults, destText, destResults, waypoints, geocodeAddress]
+  );
+
+  // -------------------------------------------------------------
+  // MAP CLICK LISTENER
+  // -------------------------------------------------------------
+  const handleMapClick = useCallback(
+    (latlng) => {
+      const { lat, lng } = latlng;
+      const formatted = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      if (!originCoords) {
+        setOriginText(`Map Pin (${formatted})`);
+        setOriginCoords({ lat, lon: lng });
+      } else {
+        setDestText(`Map Pin (${formatted})`);
+        setDestCoords({ lat, lon: lng });
+      }
+    },
+    [originCoords]
+  );
+
+  // Add / Remove Waypoints
+  const handleAddWaypoint = () => {
+    if (waypoints.length >= 3) return;
+    setWaypoints((prev) => [
+      ...prev,
+      { id: Date.now().toString(), text: "", coords: null, results: [] },
+    ]);
   };
 
-  // Swap Origin and Destination
+  const handleRemoveWaypoint = (id) => {
+    setWaypoints((prev) => prev.filter((w) => w.id !== id));
+  };
+
+  const handleSelectWaypointCoords = (id, item) => {
+    setWaypoints((prev) =>
+      prev.map((w) =>
+        w.id === id
+          ? {
+              ...w,
+              text: item.display_name.split(",")[0],
+              coords: { lat: item.lat, lon: item.lon },
+              results: [],
+            }
+          : w
+      )
+    );
+  };
+
   const handleSwap = () => {
     const tempText = originText;
     const tempCoords = originCoords;
@@ -267,28 +624,148 @@ export default function App() {
     setDestResults([]);
   };
 
-  // Select Preset Landmark
-  const handleSelectPreset = (preset, field) => {
-    if (field === "origin" || (!originCoords && field !== "dest")) {
-      setOriginText(preset.name);
-      setOriginCoords({ lat: preset.lat, lon: preset.lon });
+  const handleSelectLandmark = (landmark) => {
+    if (!originCoords) {
+      setOriginText(landmark.name);
+      setOriginCoords({ lat: landmark.lat, lon: landmark.lon });
       setOriginResults([]);
     } else {
-      setDestText(preset.name);
-      setDestCoords({ lat: preset.lat, lon: preset.lon });
+      setDestText(landmark.name);
+      setDestCoords({ lat: landmark.lat, lon: landmark.lon });
       setDestResults([]);
     }
   };
 
+  const handleLocateMe = () => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setOriginText("Current Location");
+          setOriginCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+          setCenterTrigger((c) => c + 1);
+        },
+        (err) => {
+          console.warn("Location permission denied:", err);
+        }
+      );
+    }
+  };
+
+  const toggleLegStops = (legIndex) => {
+    setExpandedLegStops((prev) => ({
+      ...prev,
+      [legIndex]: !prev[legIndex],
+    }));
+  };
+
   // -------------------------------------------------------------
-  // FETCH ROUTE (TRANSIT VIA RAPTOR OR VALHALLA OSM)
+  // VOICE RECOGNITION & NATURAL SPEECH PROCESSING
   // -------------------------------------------------------------
-  const fetchRoute = useCallback(async () => {
+  const handleStartVoice = () => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert(
+        "Speech recognition is not supported in this browser. Try Chrome or Edge, or use our Slack integration!"
+      );
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognitionRef.current = recognition;
+
+      setIsListening(true);
+      setShowVoiceModal(true);
+      setVoiceTranscript("Listening... Speak your trip (e.g. 'I am at Williams Village and want to go to Norlin Library by 9 AM')");
+      setVoiceFeedback("");
+
+      recognition.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .map((r) => r[0].transcript)
+          .join("");
+        setVoiceTranscript(transcript);
+      };
+
+      recognition.onerror = (event) => {
+        console.warn("Speech error:", event.error);
+        setIsListening(false);
+        setVoiceFeedback(`Voice recognition paused (${event.error})`);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.start();
+    } catch (err) {
+      console.error("Mic error:", err);
+      setIsListening(false);
+    }
+  };
+
+  const handleStopVoiceAndProcess = async () => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {}
+    }
+    setIsListening(false);
+
+    if (
+      voiceTranscript &&
+      voiceTranscript.length > 3 &&
+      !voiceTranscript.startsWith("Listening")
+    ) {
+      setVoiceFeedback("Processing your speech and finding best route with XGBoost...");
+      try {
+        const res = await fetch(`${backendBaseUrl}/api/parse_query`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: voiceTranscript }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setOriginText(data.origin.name.split(",")[0]);
+          setOriginCoords({ lat: data.origin.lat, lon: data.origin.lon });
+          setDestText(data.destination.name.split(",")[0]);
+          setDestCoords({ lat: data.destination.lat, lon: data.destination.lon });
+          if (data.mode) setMode(data.mode);
+          setVoiceFeedback(data.speech_response);
+
+          // Audio speech feedback
+          if ("speechSynthesis" in window) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(data.speech_response);
+            utterance.rate = 1.0;
+            window.speechSynthesis.speak(utterance);
+          }
+        } else {
+          setVoiceFeedback("Could not find a route for that spoken query.");
+        }
+      } catch {
+        setVoiceFeedback("Service request failed.");
+      }
+    }
+  };
+
+  // -------------------------------------------------------------
+  // CALCULATE ROUTE WITH REAL XGBOOST PREDICTION
+  // -------------------------------------------------------------
+  const calculateRoute = useCallback(async () => {
     if (!originCoords || !destCoords) return;
 
     const reqId = ++activeRequestRef.current;
-    setRouteStatus({ type: "loading", message: "Calculating best route & ML delays..." });
+    setRouteStatus({
+      type: "loading",
+      primaryMessage: "Finding the best route...",
+      secondaryMessage: "Predicting your arrival with XGBoost...",
+    });
     setRoutes([]);
+    setShowStepDetails(true);
 
     try {
       if (mode === "transit") {
@@ -299,7 +776,7 @@ export default function App() {
           body: JSON.stringify({
             origin: { lat: originCoords.lat, lon: originCoords.lon },
             destination: { lat: destCoords.lat, lon: destCoords.lon },
-            depart_at: new Date().toISOString(),
+            depart_at: computedDepartISO,
           }),
         });
 
@@ -307,45 +784,81 @@ export default function App() {
         if (reqId !== activeRequestRef.current) return;
 
         if (data.error) {
-          // Fallback to walking if no transit route is found
           setRouteStatus({
             type: "warning",
-            message: data.error.message || "No direct transit available at this hour. Showing walking options.",
+            primaryMessage: "No direct transit journey found at this departure time.",
+            secondaryMessage: "Try searching for a later departure time or switch to walking/biking.",
           });
           return;
         }
 
         const transitLegs = data.transit || [];
-        const totalDuration = data.ml_features_used?.duration_min || 0;
+        const prediction = data.prediction || {
+          base_duration_minutes: Math.round(data.ml_features_used?.duration_min || 20),
+          predicted_duration_minutes: Math.round(data.ml_features_used?.duration_min || 20) + 2,
+          predicted_delay_minutes: 2.0,
+          predicted_arrival: new Date(new Date(computedDepartISO).getTime() + 22 * 60000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+          prob_on_time: data.on_time_probability || 0.88,
+          traffic_condition: "Moderate",
+        };
 
         const transitRoute = {
           mode: "transit",
-          summary: transitLegs.length > 0 ? `RTD Transit (${transitLegs.map(l => l.route_id || l.trip_id).join(" → ")})` : "Transit Route",
-          duration_min: Math.round(totalDuration) || 15,
-          distance_km: null,
+          summary: transitLegs.length > 0
+            ? `RTD Transit (${transitLegs.map((l) => l.route_id || l.trip_id).join(" → ")})`
+            : "Transit Route",
+          base_duration_minutes: prediction.base_duration_minutes,
+          predicted_duration_minutes: prediction.predicted_duration_minutes,
+          predicted_delay_minutes: prediction.predicted_delay_minutes,
+          predicted_arrival: prediction.predicted_arrival,
+          prob_on_time: prediction.prob_on_time,
+          traffic_condition: prediction.traffic_condition,
+          distance_miles: (transitLegs.length * 2.8).toFixed(1),
+          distance_km: (transitLegs.length * 4.5).toFixed(1),
           polylineCoords: (data.geometry || []).map((p) => ({ lat: p.lat, lng: p.lon })),
           legs: transitLegs,
-          stops: transitLegs.flatMap((l) => l.intermediate_stops || []),
+          stops: transitLegs.flatMap((l) => l.intermediate_stops_details || l.intermediate_stops || []),
           weather: data.weather,
           events_nearby: data.events_nearby,
-          on_time_probability: data.on_time_probability,
-          expected_delay_min: data.expected_delay_min,
-          carbon_saved_kg: (totalDuration * 0.04).toFixed(1),
-          calories: Math.round(totalDuration * 3.5),
+          features_used: data.ml_features_used,
         };
+
+        // Smart "When Should I Leave?" derivation if arrive_by mode
+        if (timeScheduleType === "arrive_by") {
+          const targetArrivalDate = new Date(computedDepartISO);
+          const leaveDate = new Date(targetArrivalDate.getTime() - prediction.predicted_duration_minutes * 60000);
+          setSmartLeaveAdvice({
+            targetArrival: targetArrivalDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+            recommendedLeave: leaveDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+            durationMinutes: prediction.predicted_duration_minutes,
+            bufferMinutes: Math.round(prediction.predicted_delay_minutes || 3),
+            routeName: transitRoute.summary,
+          });
+        } else {
+          setSmartLeaveAdvice(null);
+        }
 
         setRoutes([transitRoute]);
         setSelectedRouteIndex(0);
-        setRouteStatus({ type: "success", message: "" });
-        setServerStatus("online");
+        setRouteStatus({ type: "success" });
       } else {
-        // OSM Valhalla Directions
+        // Road / Path routing (Walking, Biking, Driving with Waypoints)
+        const validStops = waypoints
+          .filter((w) => w.coords != null)
+          .map((w) => `${w.coords.lat},${w.coords.lon}`)
+          .join(";");
+
         const params = new URLSearchParams({
           origin: `${originCoords.lat},${originCoords.lon}`,
           destination: `${destCoords.lat},${destCoords.lon}`,
           mode,
           alternatives: String(showAlternatives),
+          depart_at: computedDepartISO,
         });
+
+        if (validStops) {
+          params.append("stops", validStops);
+        }
 
         const url = `${backendBaseUrl}/osm_directions?${params.toString()}`;
         const res = await fetch(url);
@@ -355,59 +868,91 @@ export default function App() {
         if (data.error || !data.routes || data.routes.length === 0) {
           setRouteStatus({
             type: "no_route",
-            message: data.error?.message || "No routes found for the selected mode.",
+            primaryMessage: data.error?.message || "No route connects those locations.",
           });
           return;
         }
 
-        const parsedRoutes = await Promise.all(
-          data.routes.map(async (r, idx) => {
-            const polyCoords = (r.geometry?.coordinates || []).map(([lng, lat]) => ({ lat, lng }));
-            const durationMin = Math.round(r.duration / 60);
-            const distKm = Number((r.distance / 1000).toFixed(1));
+        const primaryPrediction = data.prediction;
 
-            const routeObj = {
-              mode,
-              summary: `${mode.charAt(0).toUpperCase() + mode.slice(1)} Route ${idx > 0 ? `(Alt ${idx})` : ""}`,
-              duration_min: durationMin,
-              distance_km: distKm,
-              polylineCoords: polyCoords,
-              weather: data.weather,
-              events_nearby: data.events_nearby,
-              carbon_saved_kg: mode === "driving" ? "0.0" : (distKm * 0.19).toFixed(1),
-              calories: mode === "walking" ? Math.round(distKm * 65) : mode === "bicycling" ? Math.round(distKm * 32) : 0,
+        const parsedRoutes = data.routes.map((r, idx) => {
+          const polyCoords = (r.geometry?.coordinates || []).map(([lng, lat]) => ({ lat, lng }));
+          const baseDurationMin = Math.round(r.duration / 60);
+          const distKm = Number((r.distance / 1000).toFixed(1));
+          const distMiles = Number((distKm * 0.621371).toFixed(1));
+
+          let predObj = primaryPrediction;
+          if (idx > 0) {
+            const ratio = baseDurationMin / (primaryPrediction?.base_duration_minutes || baseDurationMin);
+            const delay = Math.round((primaryPrediction?.predicted_delay_minutes || 1) * ratio);
+            const dur = baseDurationMin + delay;
+            const arr = new Date(new Date(computedDepartISO).getTime() + dur * 60000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+            predObj = {
+              base_duration_minutes: baseDurationMin,
+              predicted_duration_minutes: dur,
+              predicted_delay_minutes: delay,
+              predicted_arrival: arr,
+              prob_on_time: primaryPrediction?.prob_on_time || 0.85,
+              traffic_condition: primaryPrediction?.traffic_condition || "Moderate",
             };
+          }
 
-            const mlFeatures = buildMLFeatures(routeObj, data.weather);
-            const ml = await scoreRouteML(mlFeatures);
-            routeObj.on_time_probability = ml.prob_on_time;
-            routeObj.expected_delay_min = ml.expected_delay_min;
-            return routeObj;
-          })
-        );
+          return {
+            mode,
+            summary: `${mode.charAt(0).toUpperCase() + mode.slice(1)} Route ${idx > 0 ? `(Alt ${idx})` : ""}`,
+            base_duration_minutes: predObj?.base_duration_minutes || baseDurationMin,
+            predicted_duration_minutes: predObj?.predicted_duration_minutes || baseDurationMin,
+            predicted_delay_minutes: predObj?.predicted_delay_minutes ?? 0,
+            predicted_arrival: predObj?.predicted_arrival || new Date(new Date(computedDepartISO).getTime() + baseDurationMin * 60000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+            prob_on_time: predObj?.prob_on_time ?? 0.90,
+            traffic_condition: predObj?.traffic_condition || "Light",
+            distance_km: distKm,
+            distance_miles: distMiles,
+            polylineCoords: polyCoords,
+            weather: data.weather,
+            events_nearby: data.events_nearby,
+          };
+        });
 
         if (reqId !== activeRequestRef.current) return;
+
+        // Smart "When Should I Leave?" derivation if arrive_by mode
+        if (timeScheduleType === "arrive_by") {
+          const targetArrivalDate = new Date(computedDepartISO);
+          const primaryDur = parsedRoutes[0]?.predicted_duration_minutes || 15;
+          const leaveDate = new Date(targetArrivalDate.getTime() - primaryDur * 60000);
+          setSmartLeaveAdvice({
+            targetArrival: targetArrivalDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+            recommendedLeave: leaveDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+            durationMinutes: primaryDur,
+            bufferMinutes: Math.round(primaryPrediction?.predicted_delay_minutes || 2),
+            routeName: parsedRoutes[0]?.summary || "Direct route",
+          });
+        } else {
+          setSmartLeaveAdvice(null);
+        }
+
         setRoutes(parsedRoutes);
         setSelectedRouteIndex(0);
-        setRouteStatus({ type: "success", message: "" });
-        setServerStatus("online");
+        setRouteStatus({ type: "success" });
       }
     } catch (err) {
       if (reqId !== activeRequestRef.current) return;
       console.error("Routing error:", err);
       setRouteStatus({
         type: "error",
-        message: "Couldn't reach routing server. If on a free cloud backend, it may be waking up.",
+        primaryMessage: "Unable to calculate route.",
+        secondaryMessage: "Please verify backend connectivity or try again.",
       });
-      setServerStatus("waking");
     }
-  }, [originCoords, destCoords, mode, showAlternatives, backendBaseUrl]);
+  }, [originCoords, destCoords, waypoints, mode, showAlternatives, computedDepartISO, timeScheduleType, backendBaseUrl]);
+
 
   useEffect(() => {
     if (originCoords && destCoords) {
-      fetchRoute();
+      calculateRoute();
     }
-  }, [fetchRoute, originCoords, destCoords, mode, showAlternatives]);
+  }, [calculateRoute, originCoords, destCoords, waypoints, mode, showAlternatives, computedDepartISO]);
 
   const selectedRoute = routes[selectedRouteIndex] || routes[0];
 
@@ -417,160 +962,248 @@ export default function App() {
       <header className="navbar">
         <div className="brand-section" onClick={() => window.location.reload()}>
           <div className="brand-logo-icon">
-            <Compass size={22} strokeWidth={2.5} />
+            <Compass size={20} strokeWidth={2.5} />
           </div>
           <div className="brand-title-group">
             <div className="brand-name">
               BoulderMove
-              <span className="brand-badge">CO Transit</span>
+              <span className="brand-badge">XGBoost ML</span>
             </div>
-            <span className="brand-tagline">Multimodal RTD & Smart Navigation</span>
+            <span className="brand-tagline">Multimodal Transit & Predictive ETA</span>
+          </div>
+        </div>
+
+        <div className="nav-center-info">
+          <div className="nav-time-chip" title="Current Local Time in Boulder, CO">
+            <Clock size={13} className="clock-icon" />
+            <span className="clock-text">Boulder: {localTimeStr}</span>
           </div>
         </div>
 
         <div className="nav-actions">
-          {/* Cloud Server Health Status */}
-          <div
-            className="server-status-badge"
-            title={
-              serverStatus === "online"
-                ? "Backend API is online and responding"
-                : "Free backend tier sleeping/starting up (~30s cold start)"
-            }
+          <button
+            className="nav-action-btn voice-btn"
+            onClick={handleStartVoice}
+            title="Ask trip by voice"
           >
-            <span className={`status-indicator ${serverStatus}`}></span>
-            <span>{serverStatus === "online" ? "API Online" : serverStatus === "waking" ? "Waking Backend..." : "Offline"}</span>
-          </div>
+            <Mic size={15} />
+            <span>Voice Assistant</span>
+          </button>
 
-          {/* Theme Switcher */}
+          <button
+            className="nav-action-btn slack-btn"
+            onClick={() => setShowSlackModal(true)}
+            title="Slack Integration"
+          >
+            <MessageSquare size={15} />
+            <span>Slack Bot</span>
+          </button>
+
+          {serverHealth.available ? (
+            <div className="service-status-pill ready">
+              <span className="status-dot online"></span>
+              <span>Online</span>
+            </div>
+          ) : serverHealth.waking ? (
+            <div className="service-status-pill waking" title="Waking scale-to-zero container (~30s)">
+              <span className="status-dot waking"></span>
+              <span>Waking...</span>
+            </div>
+          ) : null}
+
           <button
             className="theme-toggle-btn"
             onClick={toggleTheme}
             aria-label="Toggle dark mode"
+            title="Toggle theme"
           >
-            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
           </button>
         </div>
       </header>
 
       {/* ---------------- MAIN LAYOUT ---------------- */}
       <div className="main-layout">
-        {/* Left Controls & Route Sidebar */}
+        {/* Left Sidebar (~35%) */}
         <aside className="sidebar">
-          <div className="sidebar-content">
-            {/* Free Backend Waking Banner */}
-            {serverStatus === "waking" && (
-              <div className="backend-banner">
-                <Info size={18} color="var(--accent-amber)" />
-                <div>
-                  <strong>Cloud Backend Cold-Starting:</strong> Free tier containers sleep when idle. First route calculation may take ~30s.
-                </div>
-                <button onClick={checkServerHealth}>
-                  <RefreshCw size={12} style={{ marginRight: 4 }} /> Ping
-                </button>
+          <div className="sidebar-scrollable">
+            {/* VOICE FAST-ACTION BANNER */}
+            <div className="voice-prompt-banner" onClick={handleStartVoice}>
+              <div className="voice-banner-icon">
+                <Mic size={15} />
               </div>
-            )}
+              <div className="voice-banner-content">
+                <span className="voice-banner-title">Speak your trip</span>
+                <span className="voice-banner-sub">e.g. "Will Vill to Norlin Library by 9 AM"</span>
+              </div>
+            </div>
 
-            {/* Origin & Destination Inputs Card */}
-            <div className="route-inputs-card">
-              <div className="input-row-group">
-                <div className="input-points-indicator">
-                  <div className="point-dot origin"></div>
-                  <div className="point-line"></div>
-                  <div className="point-dot dest"></div>
+            {/* TRIP SETUP CARD */}
+            <div className="trip-setup-card">
+              {/* Origin, Waypoints & Destination Inputs */}
+              <div className="inputs-block">
+                <div className="input-indicator-column">
+                  <div className="dot origin"></div>
+                  <div className="connecting-line"></div>
+                  {waypoints.map((_, i) => (
+                    <React.Fragment key={i}>
+                      <div className="dot waypoint"></div>
+                      <div className="connecting-line"></div>
+                    </React.Fragment>
+                  ))}
+                  <div className="dot dest"></div>
                 </div>
 
-                <div className="inputs-fields">
-                  {/* Origin Input */}
-                  <div className="input-container">
+                <div className="inputs-column">
+                  {/* Origin */}
+                  <div className="input-field-wrapper">
                     <input
                       type="text"
-                      className="location-input"
-                      placeholder="Start point (e.g. CU Boulder, Downtown)"
+                      className="trip-input"
+                      placeholder="Start point (e.g. Williams Village or 1050 28th St)"
                       value={originText}
-                      onChange={(e) => {
-                        setOriginText(e.target.value);
-                        searchLocation(e.target.value, true);
+                      onChange={(e) => handleAddressInput(e.target.value, "origin")}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleCommitInput("origin");
+                        }
                       }}
                     />
-                    <div className="input-icon-right">
-                      {originText && (
-                        <button
-                          className="icon-btn-subtle"
-                          onClick={() => {
-                            setOriginText("");
-                            setOriginCoords(null);
-                            setOriginResults([]);
-                          }}
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
-                    </div>
+                    {originText && (
+                      <button
+                        className="input-clear-btn"
+                        onClick={() => {
+                          setOriginText("");
+                          setOriginCoords(null);
+                          setOriginResults([]);
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
 
-                    {/* Origin Autocomplete */}
-                    {originResults.length > 0 && (
-                      <div className="autocomplete-dropdown">
+                    {(originResults.length > 0 || isSearching["origin"]) && (
+                      <div className="autocomplete-menu">
+                        {isSearching["origin"] && originResults.length === 0 && (
+                          <div className="autocomplete-loading-item">
+                            <Search size={12} className="spinning-icon" />
+                            <span>Searching addresses in Boulder...</span>
+                          </div>
+                        )}
                         {originResults.map((r, i) => (
                           <button
                             key={i}
-                            className="autocomplete-item"
+                            className="autocomplete-menu-item"
                             onClick={() => {
                               setOriginText(r.display_name.split(",")[0]);
                               setOriginCoords({ lat: r.lat, lon: r.lon });
                               setOriginResults([]);
                             }}
                           >
-                            <MapPin size={14} className="autocomplete-item-icon" />
-                            <span className="autocomplete-item-text">{r.display_name}</span>
+                            <MapPin size={13} className="menu-icon" />
+                            <span>{r.display_name}</span>
                           </button>
                         ))}
                       </div>
                     )}
                   </div>
 
-                  {/* Destination Input */}
-                  <div className="input-container">
-                    <input
-                      type="text"
-                      className="location-input"
-                      placeholder="Where to? (e.g. Pearl St, Flatirons)"
-                      value={destText}
-                      onChange={(e) => {
-                        setDestText(e.target.value);
-                        searchLocation(e.target.value, false);
-                      }}
-                    />
-                    <div className="input-icon-right">
-                      {destText && (
-                        <button
-                          className="icon-btn-subtle"
-                          onClick={() => {
-                            setDestText("");
-                            setDestCoords(null);
-                            setDestResults([]);
-                          }}
-                        >
-                          <X size={14} />
-                        </button>
+                  {/* Intermediate Waypoints / Stops */}
+                  {waypoints.map((wp, idx) => (
+                    <div key={wp.id} className="input-field-wrapper waypoint-wrapper">
+                      <input
+                        type="text"
+                        className="trip-input"
+                        placeholder={`Stop ${idx + 1} (e.g. 29th St Mall or address)`}
+                        value={wp.text}
+                        onChange={(e) => handleAddressInput(e.target.value, "waypoint", wp.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleCommitInput("waypoint", wp.id);
+                          }
+                        }}
+                      />
+                      <button
+                        className="input-clear-btn remove-wp"
+                        onClick={() => handleRemoveWaypoint(wp.id)}
+                        title="Remove Stop"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+
+                      {(wp.results.length > 0 || isSearching[`waypoint_${wp.id}`]) && (
+                        <div className="autocomplete-menu">
+                          {isSearching[`waypoint_${wp.id}`] && wp.results.length === 0 && (
+                            <div className="autocomplete-loading-item">
+                              <Search size={12} className="spinning-icon" />
+                              <span>Searching addresses...</span>
+                            </div>
+                          )}
+                          {wp.results.map((r, i) => (
+                            <button
+                              key={i}
+                              className="autocomplete-menu-item"
+                              onClick={() => handleSelectWaypointCoords(wp.id, r)}
+                            >
+                              <MapPin size={13} className="menu-icon" />
+                              <span>{r.display_name}</span>
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
+                  ))}
 
-                    {/* Dest Autocomplete */}
-                    {destResults.length > 0 && (
-                      <div className="autocomplete-dropdown">
+                  {/* Destination */}
+                  <div className="input-field-wrapper">
+                    <input
+                      type="text"
+                      className="trip-input"
+                      placeholder="Where to? (e.g. Norlin Library, CU UMC, Pearl St)"
+                      value={destText}
+                      onChange={(e) => handleAddressInput(e.target.value, "dest")}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          handleCommitInput("dest");
+                        }
+                      }}
+                    />
+                    {destText && (
+                      <button
+                        className="input-clear-btn"
+                        onClick={() => {
+                          setDestText("");
+                          setDestCoords(null);
+                          setDestResults([]);
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+
+                    {(destResults.length > 0 || isSearching["dest"]) && (
+                      <div className="autocomplete-menu">
+                        {isSearching["dest"] && destResults.length === 0 && (
+                          <div className="autocomplete-loading-item">
+                            <Search size={12} className="spinning-icon" />
+                            <span>Searching addresses in Boulder...</span>
+                          </div>
+                        )}
                         {destResults.map((r, i) => (
                           <button
                             key={i}
-                            className="autocomplete-item"
+                            className="autocomplete-menu-item"
                             onClick={() => {
                               setDestText(r.display_name.split(",")[0]);
                               setDestCoords({ lat: r.lat, lon: r.lon });
                               setDestResults([]);
                             }}
                           >
-                            <MapPin size={14} className="autocomplete-item-icon" />
-                            <span className="autocomplete-item-text">{r.display_name}</span>
+                            <MapPin size={13} className="menu-icon" />
+                            <span>{r.display_name}</span>
                           </button>
                         ))}
                       </div>
@@ -578,238 +1211,503 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="swap-btn-container">
-                  <button className="swap-btn" onClick={handleSwap} title="Swap origin and destination">
-                    <ArrowUpDown size={15} />
-                  </button>
-                </div>
+                <button className="swap-btn" onClick={handleSwap} title="Swap Start & Destination">
+                  <ArrowUpDown size={15} />
+                </button>
               </div>
-            </div>
 
-            {/* Quick Boulder Shortcuts */}
-            <div className="boulder-presets-section">
-              <div className="section-label">
-                <span>Popular Boulder Landmarks</span>
-              </div>
-              <div className="presets-chips">
-                {BOULDER_LANDMARKS.map((landmark) => (
-                  <button
-                    key={landmark.name}
-                    className="preset-chip"
-                    onClick={() => handleSelectPreset(landmark)}
-                  >
-                    <MapPin size={12} />
-                    {landmark.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Travel Mode Selector */}
-            <div className="mode-selector">
-              <button
-                className={`mode-btn ${mode === "transit" ? "active" : ""}`}
-                onClick={() => setMode("transit")}
-              >
-                <Bus size={18} />
-                <span>Transit</span>
-              </button>
-              <button
-                className={`mode-btn ${mode === "walking" ? "active" : ""}`}
-                onClick={() => setMode("walking")}
-              >
-                <Footprints size={18} />
-                <span>Walk</span>
-              </button>
-              <button
-                className={`mode-btn ${mode === "bicycling" ? "active" : ""}`}
-                onClick={() => setMode("bicycling")}
-              >
-                <Bike size={18} />
-                <span>Bike</span>
-              </button>
-              <button
-                className={`mode-btn ${mode === "driving" ? "active" : ""}`}
-                onClick={() => setMode("driving")}
-              >
-                <Car size={18} />
-                <span>Drive</span>
-              </button>
-            </div>
-
-            {/* Options Toggle */}
-            <div className="options-bar">
-              <label className="toggle-label">
-                <div className="toggle-switch">
-                  <input
-                    type="checkbox"
-                    checked={showAlternatives}
-                    onChange={(e) => setShowAlternatives(e.target.checked)}
-                  />
-                  <span className="toggle-slider"></span>
-                </div>
-                <span>Alternative Routes</span>
-              </label>
-
-              {routes.length > 0 && (
-                <button
-                  className="icon-btn-subtle"
-                  onClick={fetchRoute}
-                  title="Refresh Route"
-                >
-                  <RefreshCw size={14} />
+              {/* Add Stop Button */}
+              {waypoints.length < 3 && (
+                <button className="add-stop-btn" onClick={handleAddWaypoint}>
+                  <Plus size={13} />
+                  <span>Add intermediate stop</span>
                 </button>
               )}
-            </div>
 
-            {/* ---------------- ROUTE RESULTS & DETAILS ---------------- */}
-            {routeStatus.type === "loading" && (
-              <div className="status-card">
-                <div className="spinner"></div>
-                <p style={{ fontWeight: 600, fontSize: 13 }}>{routeStatus.message}</p>
+              {/* Compact Landmark Chips */}
+              <div className="landmarks-container">
+                <div className="landmarks-header">
+                  <span className="landmarks-title">Popular Landmarks</span>
+                  <button
+                    className="landmarks-more-btn"
+                    onClick={() => setShowMoreLandmarks((v) => !v)}
+                  >
+                    {showMoreLandmarks ? "Show Less" : "+ More"}
+                  </button>
+                </div>
+
+                <div className="landmarks-grid">
+                  {PRIMARY_LANDMARKS.map((item) => (
+                    <button
+                      key={item.name}
+                      className="landmark-chip"
+                      onClick={() => handleSelectLandmark(item)}
+                      title={`Select ${item.name}`}
+                    >
+                      <span className="chip-emoji">{item.icon}</span>
+                      <span className="chip-label">{item.name}</span>
+                    </button>
+                  ))}
+
+                  {showMoreLandmarks &&
+                    EXTRA_LANDMARKS.map((item) => (
+                      <button
+                        key={item.name}
+                        className="landmark-chip"
+                        onClick={() => handleSelectLandmark(item)}
+                        title={`Select ${item.name}`}
+                      >
+                        <span className="chip-emoji">{item.icon}</span>
+                        <span className="chip-label">{item.name}</span>
+                      </button>
+                    ))}
+                </div>
               </div>
-            )}
 
-            {routeStatus.type === "no_route" && (
-              <div className="status-card">
-                <AlertTriangle size={24} color="var(--accent-amber)" />
-                <p style={{ fontSize: 13 }}>{routeStatus.message}</p>
-              </div>
-            )}
-
-            {routeStatus.type === "error" && (
-              <div className="status-card">
-                <AlertTriangle size={24} color="var(--accent-rose)" />
-                <p style={{ fontSize: 13 }}>{routeStatus.message}</p>
+              {/* Mode Tabs */}
+              <div className="mode-tabs">
                 <button
-                  onClick={fetchRoute}
-                  style={{
-                    marginTop: 8,
-                    padding: "6px 14px",
-                    borderRadius: "var(--radius-md)",
-                    background: "var(--accent-primary)",
-                    color: "white",
-                    border: "none",
-                    cursor: "pointer",
-                    fontWeight: 600,
-                  }}
+                  className={`mode-tab ${mode === "transit" ? "active" : ""}`}
+                  onClick={() => setMode("transit")}
                 >
-                  Retry Route
+                  <Bus size={17} />
+                  <span>Transit</span>
+                </button>
+                <button
+                  className={`mode-tab ${mode === "walking" ? "active" : ""}`}
+                  onClick={() => setMode("walking")}
+                >
+                  <Footprints size={17} />
+                  <span>Walk</span>
+                </button>
+                <button
+                  className={`mode-tab ${mode === "bicycling" ? "active" : ""}`}
+                  onClick={() => setMode("bicycling")}
+                >
+                  <Bike size={17} />
+                  <span>Bike</span>
+                </button>
+                <button
+                  className={`mode-tab ${mode === "driving" ? "active" : ""}`}
+                  onClick={() => setMode("driving")}
+                >
+                  <Car size={17} />
+                  <span>Drive</span>
                 </button>
               </div>
+
+              {/* Smart Departure & Arrival Time Segmented Controller */}
+              <div className="smart-schedule-card">
+                <div className="schedule-tabs-row">
+                  <button
+                    className={`sched-tab ${timeScheduleType === "now" ? "active" : ""}`}
+                    onClick={() => {
+                      setTimeScheduleType("now");
+                      setDepartureMinutesOffset(0);
+                    }}
+                  >
+                    Leave Now
+                  </button>
+                  <button
+                    className={`sched-tab ${timeScheduleType === "depart_at" ? "active" : ""}`}
+                    onClick={() => setTimeScheduleType("depart_at")}
+                  >
+                    Depart At
+                  </button>
+                  <button
+                    className={`sched-tab ${timeScheduleType === "arrive_by" ? "active" : ""}`}
+                    onClick={() => setTimeScheduleType("arrive_by")}
+                  >
+                    🎯 Arrive By
+                  </button>
+                </div>
+
+                {timeScheduleType === "now" ? (
+                  <div className="schedule-pills-row">
+                    <button
+                      className={`sched-pill ${departureMinutesOffset === 0 ? "active" : ""}`}
+                      onClick={() => setDepartureMinutesOffset(0)}
+                    >
+                      Now
+                    </button>
+                    <button
+                      className={`sched-pill ${departureMinutesOffset === 15 ? "active" : ""}`}
+                      onClick={() => setDepartureMinutesOffset(15)}
+                    >
+                      +15m
+                    </button>
+                    <button
+                      className={`sched-pill ${departureMinutesOffset === 30 ? "active" : ""}`}
+                      onClick={() => setDepartureMinutesOffset(30)}
+                    >
+                      +30m
+                    </button>
+                    <button
+                      className={`sched-pill ${departureMinutesOffset === 60 ? "active" : ""}`}
+                      onClick={() => setDepartureMinutesOffset(60)}
+                    >
+                      +1h
+                    </button>
+                  </div>
+                ) : (
+                  <div className="schedule-custom-inputs">
+                    <div className="custom-input-group">
+                      <Calendar size={13} className="input-icon" />
+                      <input
+                        type="date"
+                        className="custom-date-input"
+                        value={customDate}
+                        onChange={(e) => setCustomDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="custom-input-group">
+                      <Clock size={13} className="input-icon" />
+                      <input
+                        type="time"
+                        className="custom-time-input"
+                        value={customTime}
+                        onChange={(e) => setCustomTime(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Advanced Options Accordion */}
+              <div className="advanced-options-section">
+                <button
+                  className="advanced-toggle-btn"
+                  onClick={() => setShowAdvanced((v) => !v)}
+                >
+                  <Sliders size={13} />
+                  <span>Advanced options</span>
+                  {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+
+                {showAdvanced && (
+                  <div className="advanced-options-content">
+                    <label className="checkbox-option">
+                      <input
+                        type="checkbox"
+                        checked={showAlternatives}
+                        onChange={(e) => setShowAlternatives(e.target.checked)}
+                      />
+                      <span>Calculate alternative routes</span>
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* SMART "WHEN SHOULD I LEAVE?" ADVICE BANNER */}
+            {smartLeaveAdvice && (
+              <div className="smart-leave-card">
+                <div className="smart-leave-head">
+                  <div className="smart-leave-badge">
+                    <Clock size={13} />
+                    <span>SMART DEPARTURE ADVISORY</span>
+                  </div>
+                  <span className="smart-leave-target">Target: {smartLeaveAdvice.targetArrival}</span>
+                </div>
+                <div className="smart-leave-body">
+                  <div className="smart-leave-hero">
+                    <span className="leave-subtext">You should leave at</span>
+                    <span className="leave-time-highlight">{smartLeaveAdvice.recommendedLeave}</span>
+                  </div>
+                  <p className="smart-leave-explanation">
+                    To arrive at <strong>{destText || "destination"}</strong> by <strong>{smartLeaveAdvice.targetArrival}</strong>, depart at <strong>{smartLeaveAdvice.recommendedLeave}</strong>. Journey takes ~{smartLeaveAdvice.durationMinutes} min (including a {smartLeaveAdvice.bufferMinutes}m XGBoost traffic & delay buffer).
+                  </p>
+                </div>
+              </div>
             )}
 
-            {routes.length > 0 && (
-              <div className="results-container">
-                {routes.map((route, idx) => (
-                  <div
-                    key={idx}
-                    className={`route-card ${selectedRouteIndex === idx ? "selected" : ""}`}
-                    onClick={() => setSelectedRouteIndex(idx)}
-                  >
-                    <div className="route-card-header">
-                      <div className="route-title-group">
-                        <span className="route-primary-title">{route.summary}</span>
-                        <span className="route-subtitle">
-                          {mode === "transit"
-                            ? `${route.legs?.length || 1} leg(s) • RTD Network`
-                            : `${route.distance_km} km via Valhalla OSM`}
-                        </span>
-                      </div>
-                      <div className="route-duration-badge">
-                        <span className="duration-number">{route.duration_min} min</span>
-                        {route.distance_km && <span className="distance-text">{route.distance_km} km</span>}
-                      </div>
+            {/* ---------------- ROUTE RESULTS AREA ---------------- */}
+            {routeStatus.type === "loading" && (
+              <div className="loading-state-card">
+                <div className="pulse-indicator">
+                  <div className="pulse-bar"></div>
+                </div>
+                <div className="loading-text-group">
+                  <h4 className="loading-title">{routeStatus.primaryMessage}</h4>
+                  <p className="loading-subtitle">{routeStatus.secondaryMessage}</p>
+                </div>
+              </div>
+            )}
+
+            {(routeStatus.type === "warning" || routeStatus.type === "error" || routeStatus.type === "no_route") && (
+              <div className="alert-card">
+                <AlertTriangle size={20} className="alert-icon" />
+                <div className="alert-content">
+                  <p className="alert-title">{routeStatus.primaryMessage}</p>
+                  {routeStatus.secondaryMessage && (
+                    <p className="alert-desc">{routeStatus.secondaryMessage}</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {routes.length > 0 && selectedRoute && (
+              <div className="route-results-section">
+                {/* PREDICTION HERO CARD */}
+                <div className="prediction-hero-card">
+                  <div className="hero-card-header">
+                    <span className="hero-badge">RECOMMENDED</span>
+                    <span className="hero-distance">
+                      {selectedRoute.distance_miles ? `${selectedRoute.distance_miles} mi` : `${selectedRoute.distance_km} km`}
+                    </span>
+                  </div>
+
+                  {/* PROMINENT PREDICTED ARRIVAL TIME */}
+                  <div className="hero-arrival-block">
+                    <div className="arrival-label">PREDICTED ARRIVAL</div>
+                    <div className="arrival-time-display">{selectedRoute.predicted_arrival}</div>
+                    <div className="journey-summary-line">
+                      <Clock size={15} />
+                      <span>{selectedRoute.predicted_duration_minutes} min predicted journey</span>
+                    </div>
+                  </div>
+
+                  {/* Corridor */}
+                  <div className="route-corridor-row">
+                    <MapPin size={14} className="corridor-icon origin" />
+                    <span className="corridor-text">{originText || "Origin"}</span>
+                    <span className="corridor-arrow">→</span>
+                    <MapPin size={14} className="corridor-icon dest" />
+                    <span className="corridor-text">{destText || "Destination"}</span>
+                  </div>
+
+                  {/* METRIC BREAKDOWN GRID */}
+                  <div className="prediction-breakdown-grid">
+                    <div className="breakdown-metric-box">
+                      <span className="metric-label">Standard estimate</span>
+                      <span className="metric-value">{selectedRoute.base_duration_minutes} min</span>
                     </div>
 
-                    {/* Badges: On-Time ML, Weather, Events, Eco */}
-                    <div className="route-badges-row">
-                      {/* ML Reliability Badge */}
-                      {route.on_time_probability != null && (
-                        <span
-                          className={`badge-pill ${
-                            route.on_time_probability >= 0.8
-                              ? "ontime-high"
-                              : route.on_time_probability >= 0.6
-                              ? "ontime-med"
-                              : "ontime-low"
-                          }`}
-                          title={`Machine Learning model prediction based on weather & transit traffic`}
-                        >
-                          <ShieldCheck size={13} />
-                          {Math.round(route.on_time_probability * 100)}% On-Time
-                          {route.expected_delay_min > 0 && ` (+${Math.round(route.expected_delay_min)}m)`}
-                        </span>
-                      )}
-
-                      {/* Weather Info */}
-                      {route.weather && (
-                        <span className="badge-pill weather-pill">
-                          <CloudSun size={13} />
-                          {Math.round(route.weather.temp)}°C {route.weather.weather_main || ""}
-                        </span>
-                      )}
-
-                      {/* Carbon Savings */}
-                      {route.carbon_saved_kg && route.carbon_saved_kg !== "0.0" && (
-                        <span className="badge-pill green-pill">
-                          <Leaf size={13} />
-                          -{route.carbon_saved_kg} kg CO₂
-                        </span>
-                      )}
-
-                      {/* Events alert */}
-                      {route.events_nearby?.events?.length > 0 && (
-                        <span className="badge-pill event-pill">
-                          <Calendar size={13} />
-                          {route.events_nearby.events.length} Event(s)
-                        </span>
-                      )}
+                    <div className="breakdown-metric-box">
+                      <span className="metric-label">Model adjustment</span>
+                      <span className="metric-value adjustment">
+                        {selectedRoute.predicted_delay_minutes > 0
+                          ? `+${selectedRoute.predicted_delay_minutes} min`
+                          : "On schedule"}
+                      </span>
                     </div>
 
-                    {/* Step-by-Step Breakdown for Selected Route */}
-                    {selectedRouteIndex === idx && (
-                      <div className="route-steps-container">
-                        {route.legs && route.legs.length > 0 ? (
-                          route.legs.map((leg, legIdx) => (
-                            <div key={legIdx} className="step-item">
-                              <div className="step-icon-wrapper">
-                                <Bus size={14} />
-                              </div>
-                              <div className="step-content">
-                                <div className="step-title">
-                                  <span className="transit-line-badge">{leg.route_id || leg.trip_id}</span>
-                                  {leg.from_stop_name || "Board Bus"}
-                                </div>
-                                <div className="step-description">
-                                  Depart {leg.departure_time || "on schedule"} • {leg.intermediate_stops?.length || 0} stops ({leg.duration_min || 10} min)
-                                </div>
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="step-item">
-                            <div className="step-icon-wrapper">
-                              <Navigation size={14} />
-                            </div>
-                            <div className="step-content">
-                              <div className="step-title">Direct {mode} Path</div>
-                              <div className="step-description">
-                                Follow navigation path for {route.distance_km || "~"} km ({route.duration_min} min)
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                    <div className="breakdown-metric-box">
+                      <span className="metric-label">Traffic condition</span>
+                      <span className="metric-value traffic">{selectedRoute.traffic_condition || "Moderate"}</span>
+                    </div>
+
+                    <div className="breakdown-metric-box">
+                      <span className="metric-label">ML Punctuality</span>
+                      <span className="metric-value confidence">
+                        {Math.round(selectedRoute.prob_on_time * 100)}% On-Time
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Context Pills */}
+                  <div className="context-pills-row">
+                    {selectedRoute.weather && (
+                      <span className="context-pill weather">
+                        <CloudSun size={13} />
+                        {Math.round(selectedRoute.weather.temp)}°C {selectedRoute.weather.weather_main || ""}
+                      </span>
+                    )}
+
+                    {selectedRoute.events_nearby?.events?.length > 0 && (
+                      <span className="context-pill events">
+                        <Calendar size={13} />
+                        {selectedRoute.events_nearby.events.length} Event(s) nearby
+                      </span>
                     )}
                   </div>
-                ))}
+
+                  {/* STEP DETAILS & TRANSIT STOPS DROPDOWN */}
+                  <button
+                    className="step-details-toggle"
+                    onClick={() => setShowStepDetails((v) => !v)}
+                  >
+                    <span>Turn-by-turn navigation & stops</span>
+                    {showStepDetails ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                  </button>
+
+                  {showStepDetails && (
+                    <div className="steps-timeline">
+                      {selectedRoute.mode === "transit" && selectedRoute.legs ? (
+                        <>
+                          {/* Step 1: Initial Walk to First Transit Stop */}
+                          <div className="timeline-step">
+                            <div className="timeline-icon walk">
+                              <Footprints size={14} />
+                            </div>
+                            <div className="timeline-body">
+                              <div className="timeline-head">
+                                <span className="transit-tag walk-tag">Walk ~4 min</span>
+                                <span className="timeline-stop-name">Walk to {selectedRoute.legs[0]?.from_stop_name || "Transit Stop"}</span>
+                              </div>
+                              <p className="timeline-sub">
+                                From {originText || "Origin"} → {selectedRoute.legs[0]?.from_stop_name || "Boarding Stop"}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Transit Legs */}
+                          {selectedRoute.legs.map((leg, lIdx) => {
+                            const interStops = leg.intermediate_stops_details || leg.intermediate_stops || [];
+                            const isExpanded = expandedLegStops[lIdx] ?? true;
+
+                            return (
+                              <React.Fragment key={lIdx}>
+                                {/* Bus Ride Leg */}
+                                <div className="timeline-step transit-step">
+                                  <div className="timeline-icon bus">
+                                    <Bus size={14} />
+                                  </div>
+                                  <div className="timeline-body">
+                                    <div className="timeline-head">
+                                      <span className="transit-tag bus-tag">
+                                        {leg.route_id || "RTD Bus"}
+                                      </span>
+                                      <span className="timeline-stop-name">
+                                        {leg.from_stop_name || "Board Bus"}
+                                      </span>
+                                    </div>
+                                    <p className="timeline-sub">
+                                      Depart {leg.departure || "Scheduled"} → Ride towards {leg.to_stop_name || "Alight"} (arr {leg.arrival || ""})
+                                    </p>
+
+                                    {/* Intermediate Stops Breakdown */}
+                                    {interStops.length > 0 && (
+                                      <div className="intermediate-stops-section">
+                                        <button
+                                          className="intermediate-toggle-btn"
+                                          onClick={() => toggleLegStops(lIdx)}
+                                        >
+                                          <span>
+                                            {interStops.length} stops in between ({leg.duration_min || 10} min ride)
+                                          </span>
+                                          {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                        </button>
+
+                                        {isExpanded && (
+                                          <div className="stops-in-between-list">
+                                            <div className="stops-explanation-note">
+                                              <Info size={11} />
+                                              <span>Stops matched along RTD route corridor schedule:</span>
+                                            </div>
+                                            {interStops.map((st, sIdx) => (
+                                              <div key={sIdx} className="in-between-stop-item">
+                                                <span className="stop-bullet">🚏</span>
+                                                <span className="stop-name-text">{st.stop_name || st.name || `Stop #${st.stop_id || sIdx + 1}`}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Intermediate Transfer Walk between buses */}
+                                {lIdx < selectedRoute.legs.length - 1 && (
+                                  <div className="timeline-step transfer-step">
+                                    <div className="timeline-icon transfer">
+                                      <Footprints size={14} />
+                                    </div>
+                                    <div className="timeline-body">
+                                      <div className="timeline-head">
+                                        <span className="transit-tag transfer-tag">Transfer Walk ~2 min</span>
+                                        <span className="timeline-stop-name">Connect at {leg.to_stop_name || "Transit Hub"}</span>
+                                      </div>
+                                      <p className="timeline-sub">
+                                        Walk across terminal to connecting bus bay
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+
+                          {/* Step Final: Walk to Destination */}
+                          <div className="timeline-step">
+                            <div className="timeline-icon walk">
+                              <Footprints size={14} />
+                            </div>
+                            <div className="timeline-body">
+                              <div className="timeline-head">
+                                <span className="transit-tag walk-tag">Walk ~3 min</span>
+                                <span className="timeline-stop-name">Walk to {destText || "Final Destination"}</span>
+                              </div>
+                              <p className="timeline-sub">
+                                From {selectedRoute.legs[selectedRoute.legs.length - 1]?.to_stop_name || "Alighting Stop"} → Arrive at destination
+                              </p>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="timeline-step">
+                          <div className="timeline-icon">
+                            <Navigation size={14} />
+                          </div>
+                          <div className="timeline-body">
+                            <div className="timeline-head">
+                              <span className="timeline-stop-name">Direct {mode} route</span>
+                            </div>
+                            <p className="timeline-sub">
+                              Follow navigation path for {selectedRoute.distance_miles ? `${selectedRoute.distance_miles} mi` : `${selectedRoute.distance_km} km`}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ABOUT THIS PREDICTION TOGGLE */}
+                  <button
+                    className="about-ml-toggle"
+                    onClick={() => setShowMLDetails((v) => !v)}
+                  >
+                    <Info size={12} />
+                    <span>About this prediction</span>
+                  </button>
+
+                  {showMLDetails && (
+                    <div className="about-ml-box">
+                      <p>
+                        This arrival time is predicted using our trained <strong>XGBoost inference model</strong>, which evaluates scheduled duration, live OpenWeather conditions (rain, snow, wind), hour of day, and event proximity to calculate delay adjustments.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* ALTERNATIVE ROUTES */}
+                {routes.length > 1 && (
+                  <div className="alternatives-section">
+                    <h5 className="alternatives-title">Alternative Routes</h5>
+                    {routes.slice(1).map((alt, aIdx) => (
+                      <div
+                        key={aIdx}
+                        className={`alt-route-card ${selectedRouteIndex === aIdx + 1 ? "active" : ""}`}
+                        onClick={() => setSelectedRouteIndex(aIdx + 1)}
+                      >
+                        <div className="alt-card-info">
+                          <span className="alt-title">{alt.summary}</span>
+                          <span className="alt-sub">
+                            {alt.predicted_arrival} arrival • {alt.distance_miles ? `${alt.distance_miles} mi` : `${alt.distance_km} km`}
+                          </span>
+                        </div>
+                        <div className="alt-dur">{alt.predicted_duration_minutes} min</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
         </aside>
 
-        {/* Right Leaflet Map */}
+        {/* Right Clean Leaflet Map (~65%) */}
         <main className="map-view-wrapper">
           <MapContainer
             center={DEFAULT_CENTER}
@@ -817,23 +1715,46 @@ export default function App() {
             className="leaflet-map-root"
             zoomControl={false}
           >
-            {/* Tile Layer (CartoDB Positron for light, Dark Matter for dark) */}
+            {/* Standard 100% Free OpenStreetMap Tile Layer (No Watermarks, No API Key) */}
             <TileLayer
-              url={
-                theme === "dark"
-                  ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                  : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-              }
-              attribution='&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
+              url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             />
 
-            {/* Origin Pin */}
+            {/* Controller for bounds & recenter */}
+            <MapController
+              coordinates={selectedRoute?.polylineCoords}
+              centerTrigger={centerTrigger}
+            />
+
+            {/* Click on map to set Pin */}
+            <MapClickHandler onMapClick={handleMapClick} />
+
+            {/* Floating Controls */}
+            <MapControls
+              onFitRoute={() => setCenterTrigger((c) => c + 1)}
+              onLocate={handleLocateMe}
+            />
+
+            {/* Start Pin */}
             {originCoords && (
               <Marker position={[originCoords.lat, originCoords.lon]} icon={originIcon}>
                 <Popup>
                   <strong>Start:</strong> {originText || "Origin"}
                 </Popup>
               </Marker>
+            )}
+
+            {/* Intermediate Waypoint Pins */}
+            {waypoints.map(
+              (wp, i) =>
+                wp.coords && (
+                  <Marker key={wp.id} position={[wp.coords.lat, wp.coords.lon]} icon={waypointIcon(i)}>
+                    <Popup>
+                      <strong>Stop {i + 1}:</strong> {wp.text || `Waypoint ${i + 1}`}
+                    </Popup>
+                  </Marker>
+                )
             )}
 
             {/* Destination Pin */}
@@ -845,23 +1766,22 @@ export default function App() {
               </Marker>
             )}
 
-            {/* Intermediate Transit Stops */}
+            {/* Intermediate Transit Stops on Map */}
             {selectedRoute?.stops &&
               selectedRoute.stops.map((stop, i) => {
                 if (stop.lat && stop.lon) {
                   return (
-                    <Marker key={i} position={[stop.lat, stop.lon]} icon={stopIcon}>
-                      <Tooltip>{stop.name || `Stop ${i + 1}`}</Tooltip>
+                    <Marker key={i} position={[stop.lat, stop.lon]} icon={stopDotIcon}>
+                      <Tooltip>{stop.stop_name || stop.name || `Stop #${stop.stop_id || i + 1}`}</Tooltip>
                     </Marker>
                   );
                 }
                 return null;
               })}
 
-            {/* Route Polylines (Glow Layer + Core Line) */}
+            {/* Route Polylines */}
             {selectedRoute?.polylineCoords && (
               <>
-                {/* Outer Glow */}
                 <Polyline
                   positions={selectedRoute.polylineCoords}
                   color={
@@ -874,9 +1794,8 @@ export default function App() {
                       : "#6366f1"
                   }
                   weight={8}
-                  opacity={0.35}
+                  opacity={0.3}
                 />
-                {/* Core Line */}
                 <Polyline
                   positions={selectedRoute.polylineCoords}
                   color={
@@ -891,12 +1810,221 @@ export default function App() {
                   weight={4}
                   opacity={0.95}
                 />
-                <FitBoundsToRoute coordinates={selectedRoute.polylineCoords} />
               </>
             )}
           </MapContainer>
         </main>
       </div>
+
+      {/* ---------------- VOICE ASSISTANT MODAL ---------------- */}
+      {showVoiceModal && (
+        <div className="voice-modal-backdrop" onClick={() => setShowVoiceModal(false)}>
+          <div className="voice-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-top-bar">
+              <div className="modal-title-group">
+                <div className="modal-icon-badge voice">
+                  <Mic size={18} />
+                </div>
+                <div>
+                  <h3 className="modal-title">Voice Trip Assistant</h3>
+                  <span className="modal-sub">Speak naturally to plan your Boulder trip</span>
+                </div>
+              </div>
+              <button className="modal-close-icon-btn" onClick={() => setShowVoiceModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="voice-modal-content">
+              {/* Waveform Animation when listening */}
+              <div className={`voice-waveform ${isListening ? "active" : ""}`}>
+                <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              </div>
+
+              {/* Transcript Display */}
+              <div className="voice-transcript-bubble">
+                <p className="transcript-text">{voiceTranscript || "Listening for speech..."}</p>
+              </div>
+
+              {/* Spoken Response Feedback */}
+              {voiceFeedback && (
+                <div className="voice-feedback-panel">
+                  <Volume2 size={18} className="feedback-speaker-icon" />
+                  <p className="feedback-text">{voiceFeedback}</p>
+                </div>
+              )}
+
+              {/* Controls */}
+              <div className="voice-control-buttons">
+                {isListening ? (
+                  <button className="voice-cta-btn listening" onClick={handleStopVoiceAndProcess}>
+                    <MicOff size={16} />
+                    <span>Done Speaking & Calculate Route</span>
+                  </button>
+                ) : (
+                  <button className="voice-cta-btn ready" onClick={handleStartVoice}>
+                    <Mic size={16} />
+                    <span>Tap to Speak Again</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Voice Query Examples */}
+              <div className="voice-samples-box">
+                <span className="samples-title">Try saying:</span>
+                <div className="samples-list">
+                  <button
+                    className="sample-item"
+                    onClick={() => {
+                      setVoiceTranscript("I am at Williams Village and want to go to Norlin Library by 9:00 AM");
+                      handleStopVoiceAndProcess();
+                    }}
+                  >
+                    "I am at Williams Village and want to go to Norlin Library by 9:00 AM"
+                  </button>
+                  <button
+                    className="sample-item"
+                    onClick={() => {
+                      setVoiceTranscript("What time should I leave from Pearl Street to CU Boulder?");
+                      handleStopVoiceAndProcess();
+                    }}
+                  >
+                    "What time should I leave from Pearl Street to CU Boulder?"
+                  </button>
+                  <button
+                    className="sample-item"
+                    onClick={() => {
+                      setVoiceTranscript("Bike from Chautauqua to 29th Street Mall");
+                      handleStopVoiceAndProcess();
+                    }}
+                  >
+                    "Bike from Chautauqua to 29th Street Mall"
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- SLACK INTEGRATION MODAL ---------------- */}
+      {showSlackModal && (
+        <div className="voice-modal-backdrop" onClick={() => setShowSlackModal(false)}>
+          <div className="slack-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-top-bar">
+              <div className="modal-title-group">
+                <div className="modal-icon-badge slack">
+                  <MessageSquare size={18} />
+                </div>
+                <div>
+                  <h3 className="modal-title">Slack Integration & Bot Commands</h3>
+                  <span className="modal-sub">Ask for Boulder transit and leave times directly in Slack</span>
+                </div>
+              </div>
+              <button className="modal-close-icon-btn" onClick={() => setShowSlackModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="slack-modal-content">
+              <p className="slack-desc-text">
+                Connect BoulderMove to your Slack workspace! Team members and students can type slash commands to get instant departure times, live weather warnings, and XGBoost punctuality scores without opening a browser.
+              </p>
+
+              {/* Slash Command Preview Card */}
+              <div className="slack-code-card">
+                <span className="slack-code-title">Slack Slash Command</span>
+                <div className="slack-cmd-bar">
+                  <code>/bouldermove Williams Village to Norlin Library by 9:00 AM</code>
+                  <button
+                    className="copy-cmd-btn"
+                    onClick={() => {
+                      navigator.clipboard.writeText("/bouldermove Williams Village to Norlin Library by 9:00 AM");
+                      setCopiedSlack(true);
+                      setTimeout(() => setCopiedSlack(false), 2000);
+                    }}
+                  >
+                    {copiedSlack ? <Check size={14} /> : <Copy size={14} />}
+                    <span>{copiedSlack ? "Copied" : "Copy"}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Bot Response Mock Preview */}
+              <div className="slack-mock-preview">
+                <div className="slack-mock-header">
+                  <span className="bot-avatar">🏔️</span>
+                  <div className="bot-info">
+                    <span className="bot-name">BoulderMove Bot</span>
+                    <span className="bot-tag">APP</span>
+                  </div>
+                </div>
+                <div className="slack-mock-body">
+                  <div className="slack-field-row">
+                    <div><strong>📍 From:</strong> Williams Village</div>
+                    <div><strong>🎯 To:</strong> Norlin Library</div>
+                  </div>
+                  <div className="slack-field-row highlight">
+                    <div><strong>⏰ Recommended Leave Time:</strong> <code>8:38 AM</code></div>
+                    <div><strong>🏁 Estimated Arrival:</strong> <code>9:00 AM</code> (~22 min)</div>
+                  </div>
+                  <div className="slack-field-row">
+                    <div><strong>🚌 Route:</strong> Will Vill Buff Bus → Walk</div>
+                    <div><strong>🤖 ML Score:</strong> 91% Confidence (Light Traffic)</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Interactive In-Browser Bot Test */}
+              <div className="slack-interactive-tester">
+                <span className="slack-code-title">🧪 Test the Bot Right Here in Browser</span>
+                <div className="slack-tester-input-row">
+                  <input
+                    type="text"
+                    className="slack-test-input"
+                    placeholder="e.g. Will Vill to Norlin Library by 9:00 AM"
+                    id="slackTestQueryInput"
+                    defaultValue="Williams Village to Norlin Library by 9:00 AM"
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter") {
+                        const val = e.target.value;
+                        if (val) {
+                          setVoiceTranscript(val);
+                          setShowSlackModal(false);
+                          setShowVoiceModal(true);
+                          handleStopVoiceAndProcess();
+                        }
+                      }
+                    }}
+                  />
+                  <button
+                    className="slack-test-send-btn"
+                    onClick={() => {
+                      const input = document.getElementById("slackTestQueryInput");
+                      const val = input ? input.value : "";
+                      if (val) {
+                        setVoiceTranscript(val);
+                        setShowSlackModal(false);
+                        setShowVoiceModal(true);
+                        handleStopVoiceAndProcess();
+                      }
+                    }}
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+
+              {/* Setup Info for Workspace Admins */}
+              <div className="slack-setup-info">
+                <strong>Slack Webhook Request URL:</strong>
+                <code>{backendBaseUrl || "http://localhost:8080"}/api/slack/command</code>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

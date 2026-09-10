@@ -10,3 +10,6 @@ pandas
 shapely
 osmnx
 polyline
+xgboost
+joblib
+scikit-learn

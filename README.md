@@ -1,41 +1,32 @@
-# BoulderMove  
-### By Kruti Shah and Rhea Nair  
+# BoulderMove 🏔️  
+### Multimodal Transit & Smart Navigation for Boulder, CO
 
-BoulderMove is a multimodal trip planner for Boulder that combines **transit routing**, **walking**, **weather analysis**, **event alerts**, and a **machine-learning prediction model** into a single smart UI.
-## 🎥 Demo Video
-
-[![Watch the BoulderMove Demo](https://img.youtube.com/vi/fTusDKHIp4w/0.jpg)](https://youtu.be/fTusDKHIp4w)
-
-Click the image above to watch the full BoulderMove demo.
-
-This repository contains:
-
-- `backend/` — FastAPI routing API + routing engine + ML training  
-- `frontend/` — React UI + Google Maps  
+BoulderMove is a production-ready multimodal trip planner for Boulder, Colorado. It intelligently blends **RTD GTFS transit routing (RAPTOR)**, **pedestrian walking graphs (OSMnx)**, **OpenStreetMap / Valhalla routing (Bike, Walk, Drive)**, **real-time OpenWeather analysis & severe weather warnings**, **Ticketmaster event alerts**, and **machine-learning delay prediction** into a high-performance modern web interface.
 
 ---
 
-# 1. Prerequisites
+## 🚀 Quick Deployment (Production)
 
-## Local Requirements
-- Python 3.10+
-- Node.js LTS
-- Git
-- Virtualenv or Conda
+| Tier | Service | Deployment Guide |
+|------|---------|------------------|
+| **Frontend (Edge CDN)** | **Netlify (Free)** | Fully configured with `netlify.toml` SPA routing. Run `npm run build` with output to `dist/`. Set `VITE_BACKEND_URL`. |
+| **Backend (Python API)** | **Render / Railway / Koyeb (Free)** | Deploy in 1-click via `render.yaml` Blueprint or Dockerfile. |
+| **ML Engine** | **Cloud Run / Fast API** | On-demand delay risk and on-time reliability scoring. |
 
-## Cloud Requirements
-- Compute Engine VM  
-- Cloud SQL (PostgreSQL)  
-- Cloud Storage bucket  
-- Cloud Run (ML service)  
-- Cloud Build + Artifact Registry  
+See the complete step-by-step instructions in [DEPLOYMENT.md](file:///e:/Projects/bouldermove_dcsc/DEPLOYMENT.md).
 
-### API Keys Needed
-- OpenWeather API key for live weather context
-- Ticketmaster API key (optional) for nearby event alerts
+---
 
-Map rendering, location search, and non-transit directions use OpenStreetMap
-services and do not require a map API key.
+## ✨ Features
+
+- 🌲 **Modern Alpine UI**: Curated Boulder mountain aesthetic with responsive controls, glassmorphic panels, and one-click Dark / Light mode.
+- ⚡ **Vite + React 18**: High-speed edge-optimized frontend with instant client-side transitions.
+- 📍 **Boulder Landmarks Presets**: One-tap navigation to CU Boulder, Pearl Street Mall, Chautauqua Park & Flatirons, Boulder Junction, and Sanitas.
+- 🚌 **GTFS RAPTOR Transit Router**: Optimized transit engine computing earliest-arrival journeys across RTD and Bustang feeds.
+- 🌧️ **Live Weather & Alerts**: Real-time temperature, wind, snow, and rain delay warnings powered by OpenWeather.
+- 🎟️ **Event Impact**: Ticketmaster integration flagging events along transit and driving corridors.
+- 🤖 **ML On-Time Probability**: Real-time delay risk and punctuality score calculated per route.
+- 🔋 **Zero-Cost Production Ready**: Free-tier cloud backend keep-alive & cold-start helper banner.
 
 ---
 
@@ -103,7 +94,7 @@ http://localhost:8080
 
 ---
 
-# 4. Frontend Setup (React)
+# 4. Frontend Setup (React + Vite)
 
 ## 4.1 Install dependencies
 ```bash
@@ -111,41 +102,42 @@ cd ../frontend
 npm install
 ```
 
-## 4.2 Create frontend `.env`
+## 4.2 Create frontend `.env` (Optional in local development)
 
 Create `frontend/.env`:
 
 ```
-REACT_APP_COMBINED_ROUTER_URL=http://localhost:8080
+VITE_BACKEND_URL=http://localhost:8080
 ```
 
 ## 4.3 Run frontend
 
 ```bash
-npm start
+npm run dev
 ```
 
 Frontend runs at:
 ```
-http://localhost:3000
+http://localhost:5000 (or http://localhost:5173)
 ```
 
 ---
 
 # 5. Using the App
 
-When the frontend loads, you should see:
+When the frontend loads, you will see:
 
-- A Google Map centered on Boulder  
-- Origin and destination input boxes  
-- A button to plan a trip  
+- An interactive OpenStreetMap Leaflet map centered on Boulder  
+- Origin, waypoint, and destination input boxes with autocomplete & landmark presets  
+- Mode toggles: Transit, Bicycling, Walking, Driving  
+- Real-time weather banner, ML delay prediction gauge, and step-by-step navigation breakdown  
 
 Expected behavior when requesting a route:
 
-- A polyline route is drawn on the map  
-- Walking + transit segments are displayed  
-- Weather + event alerts appear  
-- ML-based on-time arrival probability is shown  
+- A responsive, animated polyline route is rendered on the map  
+- Walking + RTD transit segments with intermediate stops are displayed  
+- Weather + event alerts appear automatically  
+- XGBoost machine learning ETA prediction & on-time reliability score are computed in real time  
 
 ---
 
