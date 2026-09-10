@@ -11,4 +11,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cd ../frontend
-HOST=0.0.0.0 PORT=5000 npm start
+HOST=0.0.0.0 \
+PORT=5000 \
+DANGEROUSLY_DISABLE_HOST_CHECK=true \
+npm start
