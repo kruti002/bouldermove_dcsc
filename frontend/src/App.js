@@ -365,19 +365,6 @@ const centerPanelStyle = (darkMode) => ({
   boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
 });
 
-const rightPanelStyle = (darkMode) => ({
-  background: darkMode ? "#111827" : "white",
-  color: darkMode ? "#e5e7eb" : "#111827",
-  borderRadius: "12px",
-  padding: "16px",
-  boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-  display: "flex",
-  flexDirection: "column",
-  gap: "8px",
-  maxHeight: "600px",
-  overflowY: "auto",
-});
-
 /* Chip buttons */
 const chipStyle = (darkMode) => ({
   fontSize: "12px",
@@ -695,7 +682,8 @@ const fetchOsmRoute = useCallback(async () => {
             <div className="drawer-empty"><strong>No saved trips yet.</strong><p>Save routes you use often and they will appear here.</p></div>
           ) : savedTrips.map((trip) => (
             <button className="saved-trip" type="button" key={trip.id} onClick={() => {
-              setOrigin(trip.origin); setDestination(trip.destination); setMode(trip.mode);
+               setOrigin(trip.origin); setDestination(trip.destination); setMode(trip.mode);
+               setOriginCoords(trip.originCoords || null); setDestinationCoords(trip.destinationCoords || null);
               setShowSaved(false); setActiveNav("plan");
             }}>
               <strong>{trip.origin} → {trip.destination}</strong><span>{trip.mode} · saved locally</span>
@@ -710,7 +698,13 @@ const fetchOsmRoute = useCallback(async () => {
             <span className="eyebrow">BOULDERMOVE</span>
             <h2 id="about-title">Smarter movement for Boulder and beyond.</h2>
             <p>BoulderMove combines routing, transit information, weather conditions and travel predictions to help you choose the best way to reach your destination.</p>
-            <p className="about-note">Saved trips stay on this device. Map data © OpenStreetMap contributors.</p>
+             <ul className="about-features">
+               <li>Driving, transit, cycling, and walking routes</li>
+               <li>Transit stops, transfers, and alternative routes</li>
+               <li>Weather-aware travel information</li>
+               <li>Saved trips stored locally on this device</li>
+             </ul>
+             <p className="about-note">Map data © OpenStreetMap contributors.</p>
           </section>
         </div>
       )}
@@ -925,6 +919,8 @@ const fetchOsmRoute = useCallback(async () => {
                   mode={mode}
                   showWeatherDetails={showWeatherDetails}
                   darkMode={darkMode}
+                   selected={routes.indexOf(r) === activeRouteIndex}
+                   onSelect={() => setActiveRouteIndex(routes.indexOf(r))}
                 />
               ))
             )}
@@ -945,7 +941,7 @@ const fetchOsmRoute = useCallback(async () => {
               <MapContainer zoom={11} center={[40.015, -105.2705]} style={{ width: "100%", height: "100%" }}>
                 <TileLayer
                   attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  url="https://{s}.tile.openstreetmap.de/{z}/{x}/{y}.png"
                 />
                 <FitRouteBounds paths={decodedRoutes} />
                 {decodedRoutes.map((path, i) => (
@@ -1026,7 +1022,7 @@ function RouteUnavailable({ status, onRetry, darkMode, compact = false }) {
 /* -------------------------------------------------------------------------- */
 /* RouteCard */
 /* -------------------------------------------------------------------------- */
-function RouteCard({ route, index, mode, showWeatherDetails, darkMode }) {
+function RouteCard({ route, index, mode, showWeatherDetails, darkMode, selected, onSelect }) {
   const label = String.fromCharCode(65 + index);
   const color = ["#4285F4", "#FF6347", "#2ECC71", "#8E44AD"][index % 4];
   const [expandEvents, setExpandEvents] = useState(false);
@@ -1064,7 +1060,17 @@ function RouteCard({ route, index, mode, showWeatherDetails, darkMode }) {
 
   return (
     <div
-      className="route-result-card"
+      className={`route-result-card ${selected ? "route-result-card-selected" : ""}`}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-current={selected ? "true" : undefined}
       style={{
         marginBottom: "8px",
         padding: "10px 12px",
@@ -1173,8 +1179,14 @@ function RouteCard({ route, index, mode, showWeatherDetails, darkMode }) {
       {isTransit && stopCount > 0 ? (
         <details className="stop-details">
           <summary>View all {stopCount} stops</summary>
-          <div className="stop-sequence" style={{ color: textMuted }}>
-            Stops: {route.stops.join(" → ")}
+          <div className="transit-timeline" style={{ color: textMuted }}>
+            <span className="legacy-test-label">Stops: {route.stops.join(" → ")}</span>
+            {route.stops.map((stop, stopIndex) => (
+              <div className="timeline-stop" key={`${stop}-${stopIndex}`}>
+                <span className={`timeline-dot ${stopIndex === 0 || stopIndex === route.stops.length - 1 ? "timeline-dot-major" : ""}`} />
+                <span>{stop}</span>
+              </div>
+            ))}
           </div>
         </details>
       ) : (

@@ -1,0 +1,2 @@
+- [Map tile host](map-tile-host.md) — the default OSM tile host can be blocked in this environment; keep a compatible OSM mirror available for Leaflet previews.
+- [Layout selector cleanup](layout-selector-cleanup.md) — when planner/map sections are structurally reordered, audit legacy nth-child selectors because they can hide the new map container.
