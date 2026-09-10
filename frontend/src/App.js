@@ -125,20 +125,53 @@ function FitRouteBounds({ paths }) {
 
 function LocationInput({ value, onChange, onSelect, placeholder, style }) {
   const [results, setResults] = useState([]);
+  const [searchError, setSearchError] = useState("");
 
   const search = async () => {
-    if (!value.trim()) return;
+    if (!value.trim()) {
+      setResults([]);
+      setSearchError(`Enter a ${placeholder.toLowerCase()} to search.`);
+      onSelect(null);
+      return;
+    }
+
+    setSearchError("");
     const params = new URLSearchParams({
       q: value,
       format: "jsonv2",
       limit: "5",
       countrycodes: "us",
     });
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?${params.toString()}`
-    );
-    if (!response.ok) throw new Error("Location search failed");
-    setResults(await response.json());
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?${params.toString()}`
+      );
+      if (!response.ok) throw new Error("Location search failed");
+
+      const data = await response.json();
+      const validResults = Array.isArray(data)
+        ? data.filter(
+            (result) =>
+              Number.isFinite(Number(result.lat)) &&
+              Number.isFinite(Number(result.lon))
+          )
+        : [];
+
+      setResults(validResults);
+      onSelect(null);
+      if (validResults.length === 0) {
+        setSearchError(
+          `No usable ${placeholder.toLowerCase()} found. Check the place name and try again.`
+        );
+      }
+    } catch (error) {
+      console.error("Location search failed:", error);
+      setResults([]);
+      onSelect(null);
+      setSearchError(
+        `Couldn't search for this ${placeholder.toLowerCase()}. Check your connection and try again.`
+      );
+    }
   };
 
   return (
@@ -146,17 +179,27 @@ function LocationInput({ value, onChange, onSelect, placeholder, style }) {
       <div className="location-search-row">
         <input
           value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => {
+            onChange(event.target.value);
+            onSelect(null);
+            setResults([]);
+            setSearchError("");
+          }}
           onKeyDown={(event) => {
-            if (event.key === "Enter") search().catch(console.error);
+            if (event.key === "Enter") search();
           }}
           placeholder={placeholder}
           style={style}
         />
-        <button type="button" onClick={() => search().catch(console.error)}>
+        <button type="button" onClick={search}>
           Find
         </button>
       </div>
+      {searchError && (
+        <div role="alert" className="location-search-error">
+          {searchError}
+        </div>
+      )}
       {results.length > 0 && (
         <div className="location-results">
           {results.map((result) => (
@@ -170,6 +213,7 @@ function LocationInput({ value, onChange, onSelect, placeholder, style }) {
                   lon: Number(result.lon),
                 });
                 setResults([]);
+                setSearchError("");
               }}
             >
               {result.display_name}

@@ -127,6 +127,65 @@ async function selectLocations() {
   );
 }
 
+describe('location search failures', () => {
+  test.each([
+    {
+      name: 'network errors',
+      response: () => Promise.reject(new Error('Network unavailable')),
+      message: /couldn't search for this origin.*check your connection and try again/i,
+    },
+    {
+      name: 'empty results',
+      response: () =>
+        Promise.resolve({ ok: true, json: async () => [] }),
+      message: /no usable origin found.*check the place name and try again/i,
+    },
+    {
+      name: 'invalid coordinates',
+      response: () =>
+        Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              place_id: 1,
+              display_name: 'Broken result',
+              lat: 'not-a-number',
+              lon: '-105',
+            },
+          ],
+        }),
+      message: /no usable origin found.*check the place name and try again/i,
+    },
+  ])('keeps trip setup usable for $name without requesting a route', async ({
+    response,
+    message,
+  }) => {
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation((url) => {
+      if (String(url).includes('nominatim.openstreetmap.org')) {
+        return response();
+      }
+      return Promise.reject(new Error(`Unexpected route request: ${url}`));
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
+    fireEvent.change(screen.getByPlaceholderText('Origin'), {
+      target: { value: 'Unavailable place' },
+    });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Find' })[0]);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(message);
+    expect(screen.getByPlaceholderText('Destination')).toBeEnabled();
+    expect(screen.getByRole('combobox')).toBeEnabled();
+    expect(screen.getByRole('button', { name: /show today’s weather/i })).toBeEnabled();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        /\/(?:osm_directions|plan_transit_full)/.test(String(url))
+      )
+    ).toBe(false);
+  });
+});
+
 test('maps OSM directions to alternatives, complete coordinates, and endpoint markers', async () => {
   const fetchMock = jest.spyOn(global, 'fetch');
   fetchMock.mockImplementation((url, options) => {
