@@ -46,3 +46,7 @@ externalPort = 8080
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 300000
+
+[deployment]
+deploymentTarget = "vm"
+run = ["bash", "run.sh"]
