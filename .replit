@@ -40,6 +40,10 @@ localPort = 5001
 externalPort = 3001
 
 [[ports]]
+localPort = 5090
+externalPort = 3000
+
+[[ports]]
 localPort = 8080
 externalPort = 8080
 
@@ -48,5 +52,6 @@ path = "scripts/post-merge.sh"
 timeoutMs = 300000
 
 [deployment]
-deploymentTarget = "vm"
-run = ["bash", "run.sh"]
+deploymentTarget = "autoscale"
+run = ["bash", "-c", "cd backend && python combined_router.py"]
+build = ["bash", "-c", "npm --prefix frontend ci --ignore-scripts && npm --prefix frontend run build"]

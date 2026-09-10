@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import os
 import networkx as nx
@@ -391,6 +392,14 @@ def osm_directions(
         "weather": weather,
         "events_nearby": events,
     }
+
+
+# -------------------------- PRODUCTION FRONTEND ---------------------------
+FRONTEND_BUILD = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
+)
+if os.path.isdir(FRONTEND_BUILD):
+    app.mount("/", StaticFiles(directory=FRONTEND_BUILD, html=True), name="frontend")
 
 
 # ----------------------------- LOCAL RUNNER -------------------------------
