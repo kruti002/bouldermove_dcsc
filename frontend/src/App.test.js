@@ -144,6 +144,133 @@ function mockLocationSearch(requestUrl) {
 }
 
 describe('route recovery states', () => {
+  test('keeps the newest destination route when the previous request finishes last', async () => {
+    const pendingRoutes = [];
+    jest.spyOn(global, 'fetch').mockImplementation((url, options) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes('nominatim.openstreetmap.org')) {
+        const query = new URL(requestUrl).searchParams.get('q');
+        const isOrigin = query === 'Origin';
+        const isNewDestination = query === 'New Destination';
+        return Promise.resolve({
+          ok: true,
+          json: async () => [
+            {
+              place_id: query,
+              display_name: `${query} result`,
+              lat: isOrigin ? '40' : isNewDestination ? '40.3' : '40.2',
+              lon: isOrigin ? '-105' : isNewDestination ? '-105.3' : '-105.2',
+            },
+          ],
+        });
+      }
+      if (requestUrl.includes('/osm_directions')) {
+        return new Promise((resolve) => pendingRoutes.push(resolve));
+      }
+      if (options?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ prob_on_time: 0.9, expected_delay_min: 1 }),
+        });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
+    await selectLocations();
+    await waitFor(() => expect(pendingRoutes).toHaveLength(1));
+
+    fireEvent.change(screen.getByPlaceholderText('Destination'), {
+      target: { value: 'New Destination' },
+    });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Find' })[1]);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'New Destination result' })
+    );
+    await waitFor(() => expect(pendingRoutes).toHaveLength(2));
+
+    pendingRoutes[1]({
+      ok: true,
+      json: async () => ({
+        routes: [
+          {
+            duration: 120,
+            distance: 1000,
+            geometry: { coordinates: [[-105, 40], [-105.3, 40.3]] },
+          },
+        ],
+      }),
+    });
+    expect(await screen.findByText('2 min • 1 km')).toBeInTheDocument();
+
+    pendingRoutes[0]({
+      ok: false,
+      json: async () => ({
+        error: { code: 'provider_failure', message: 'Stale destination failure' },
+      }),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('2 min • 1 km')).toBeInTheDocument();
+      expect(screen.queryByText('Routing service unavailable')).not.toBeInTheDocument();
+    });
+  });
+
+  test('keeps the latest trip when an older route response finishes last', async () => {
+    let resolveDrivingRoute;
+    let drivingSignal;
+    jest.spyOn(global, 'fetch').mockImplementation((url, options) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes('nominatim.openstreetmap.org')) {
+        return mockLocationSearch(requestUrl);
+      }
+      if (requestUrl.includes('/osm_directions')) {
+        drivingSignal = options?.signal;
+        return new Promise((resolve) => {
+          resolveDrivingRoute = resolve;
+        });
+      }
+      if (requestUrl.includes('/plan_transit_full')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            geometry: [
+              { lat: 40, lon: -105 },
+              { lat: 40.2, lon: -105.2 },
+            ],
+            transit: [{ route_id: 'LATEST', intermediate_stops: ['Latest stop'] }],
+          }),
+        });
+      }
+      return Promise.reject(new Error(`Unexpected request: ${requestUrl}`));
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByRole('button', { name: 'Enter BoulderMove' }));
+    await selectLocations();
+    await waitFor(() => expect(resolveDrivingRoute).toBeDefined());
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'transit' },
+    });
+
+    expect(await screen.findByText('Route A — Transit via LATEST')).toBeInTheDocument();
+    expect(drivingSignal.aborted).toBe(true);
+
+    resolveDrivingRoute({
+      ok: false,
+      json: async () => ({
+        error: { code: 'provider_failure', message: 'Stale driving failure' },
+      }),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Route A — Transit via LATEST')).toBeInTheDocument();
+      expect(screen.queryByText('Routing service unavailable')).not.toBeInTheDocument();
+    });
+  });
+
   test('shows loading and then a distinct no-route message', async () => {
     let resolveRoute;
     jest.spyOn(global, 'fetch').mockImplementation((url) => {

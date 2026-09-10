@@ -1,5 +1,5 @@
 import { DotLottieReact } from "@lottiefiles/dotlottie-react";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -20,7 +20,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
  
-async function scoreRouteML(routeFeatures) {
+async function scoreRouteML(routeFeatures, signal) {
   try {
     const res = await fetch(
       "https://bouldermove-ml-499631536778.us-central1.run.app/score_route",
@@ -28,6 +28,7 @@ async function scoreRouteML(routeFeatures) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(routeFeatures),
+        signal,
       }
     );
 
@@ -345,6 +346,22 @@ export default function App() {
   const [originCoords, setOriginCoords] = useState(null);
   const [destinationCoords, setDestinationCoords] = useState(null);
   const [routeStatus, setRouteStatus] = useState({ type: "idle", message: "" });
+  const routeRequestRef = useRef({ id: 0, controller: null });
+
+  const beginRouteRequest = useCallback(() => {
+    routeRequestRef.current.controller?.abort();
+    const request = {
+      id: routeRequestRef.current.id + 1,
+      controller: new AbortController(),
+    };
+    routeRequestRef.current = request;
+    return request;
+  }, []);
+
+  const isLatestRouteRequest = useCallback(
+    (request) => routeRequestRef.current.id === request.id,
+    []
+  );
 
   const clearOldRoute = () => {
     setRoutes([]);
@@ -355,6 +372,7 @@ export default function App() {
 const fetchOsmRoute = useCallback(async () => {
   if (!originCoords || !destinationCoords) return;
   if (mode === "transit") return; // safety
+  const request = beginRouteRequest();
 
   const params = new URLSearchParams({
     origin: `${originCoords.lat},${originCoords.lon}`,
@@ -369,8 +387,9 @@ const fetchOsmRoute = useCallback(async () => {
   setRouteStatus({ type: "loading", message: "" });
 
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: request.controller.signal });
     const data = await res.json();
+    if (!isLatestRouteRequest(request)) return;
 
     if (!res.ok || data.error?.code === "provider_failure") {
       throw new Error(data.error?.message || "The routing service is temporarily unavailable.");
@@ -378,6 +397,7 @@ const fetchOsmRoute = useCallback(async () => {
 
     if (!data.routes || data.routes.length === 0) {
       console.warn("No routes from OpenStreetMap routing");
+      if (!isLatestRouteRequest(request)) return;
       setRoutes([]);
       setRouteStatus({
         type: "no_route",
@@ -397,14 +417,17 @@ const fetchOsmRoute = useCallback(async () => {
 
   for (let r of mappedRoutes) {
       const features = buildMLFeatures(r, r.weather);
-      const ml = await scoreRouteML(features);
+      const ml = await scoreRouteML(features, request.controller.signal);
+      if (!isLatestRouteRequest(request)) return;
 
       r.on_time_probability = ml.prob_on_time;
       r.expected_delay_min = ml.expected_delay_min;
 }
+    if (!isLatestRouteRequest(request)) return;
     setRoutes(mappedRoutes);
     setRouteStatus({ type: "success", message: "" });
   } catch (err) {
+    if (!isLatestRouteRequest(request)) return;
     console.error("OpenStreetMap route fetch failed:", err);
     setRoutes([]);
     setRouteStatus({
@@ -412,12 +435,20 @@ const fetchOsmRoute = useCallback(async () => {
       message: err.message || "The routing service is temporarily unavailable.",
     });
   }
-}, [originCoords, destinationCoords, mode, showAlternatives]);
+}, [
+  originCoords,
+  destinationCoords,
+  mode,
+  showAlternatives,
+  beginRouteRequest,
+  isLatestRouteRequest,
+]);
              
   /* ---------------- TRANSIT BACKEND REQUEST ---------------- */
   const fetchTransitRoute = useCallback(async () => {
     if (mode !== "transit") return;
     if (!originCoords || !destinationCoords) return;
+    const request = beginRouteRequest();
 
     clearOldRoute();
     setRouteStatus({ type: "loading", message: "" });
@@ -441,9 +472,11 @@ const fetchOsmRoute = useCallback(async () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: request.controller.signal,
       });
 
       const data = await res.json();
+      if (!isLatestRouteRequest(request)) return;
 
       if (!res.ok || data.error?.code === "provider_failure") {
         throw new Error(
@@ -453,6 +486,7 @@ const fetchOsmRoute = useCallback(async () => {
 
       if (data.error) {
         console.log("Backend error:", data.error);
+        if (!isLatestRouteRequest(request)) return;
         setRouteStatus({
           type: "no_route",
           message:
@@ -466,9 +500,11 @@ const fetchOsmRoute = useCallback(async () => {
 
       const routeObj = buildTransitRoute(data, body);
 
+      if (!isLatestRouteRequest(request)) return;
       setRoutes([routeObj]);
       setRouteStatus({ type: "success", message: "" });
     } catch (err) {
+      if (!isLatestRouteRequest(request)) return;
       console.error("Transit fetch error:", err);
       setRoutes([]);
       setRouteStatus({
@@ -476,11 +512,21 @@ const fetchOsmRoute = useCallback(async () => {
         message: err.message || "The transit routing service is temporarily unavailable.",
       });
     }
-  }, [mode, originCoords, destinationCoords]);
+  }, [
+    mode,
+    originCoords,
+    destinationCoords,
+    beginRouteRequest,
+    isLatestRouteRequest,
+  ]);
 
   /* Auto-run when mode/coords change */
   useEffect(() => {
-    if (!originCoords || !destinationCoords) return;
+    if (!originCoords || !destinationCoords) {
+      routeRequestRef.current.controller?.abort();
+      routeRequestRef.current.id += 1;
+      return;
+    }
 
     console.log("DEBUG: mode =", mode);
     console.log("DEBUG: originCoords =", originCoords);
@@ -491,6 +537,11 @@ const fetchOsmRoute = useCallback(async () => {
     } else {
       fetchOsmRoute();
     }
+
+    return () => {
+      routeRequestRef.current.controller?.abort();
+      routeRequestRef.current.id += 1;
+    };
   }, [mode, originCoords, destinationCoords, fetchOsmRoute, fetchTransitRoute]);
 
   const retryRoute = () => {
