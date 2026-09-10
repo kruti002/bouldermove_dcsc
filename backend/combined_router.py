@@ -12,9 +12,17 @@ import osmnx as ox
 from shapely.geometry import Point
 import requests
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import polyline
 import xgboost as xgb
 from joblib import load
+
+BOULDER_TZ = ZoneInfo("America/Denver")
+
+def get_boulder_now() -> datetime:
+    """Returns the current real-time datetime in Boulder, Colorado (Mountain Time - MDT/MST)."""
+    return datetime.now(BOULDER_TZ)
+
 
 from weather_service import WeatherError, get_weather_and_alerts
 from events_service import events_near_route
@@ -86,7 +94,7 @@ def predict_route_time(features: dict, depart_dt: datetime = None) -> dict:
     """
     base_dur = float(features.get("duration_min", 0.0))
     if depart_dt is None:
-        depart_dt = datetime.now()
+        depart_dt = get_boulder_now()
 
     prob_on_time = 0.90
     if ml_booster is not None and ml_feature_cols:
@@ -798,11 +806,11 @@ def plan_transit_full(req: PlanTransitRequest):
     Multimodal transit journey planning with walking, bus connections, transfer hubs,
     intermediate stops breakdown, live OpenWeather conditions, and native XGBoost ETA prediction.
     """
-    departure_iso = req.depart_at or datetime.now().replace(microsecond=0).isoformat()
+    departure_iso = req.depart_at or get_boulder_now().replace(microsecond=0).isoformat()
     try:
         depart_dt = datetime.fromisoformat(departure_iso.replace("Z", "+00:00"))
     except Exception:
-        depart_dt = datetime.now()
+        depart_dt = get_boulder_now()
 
     # Generate complete multimodal journey with walking and transfer legs
     journey = plan_boulder_multimodal_journey(
@@ -938,7 +946,7 @@ def osm_directions(
     route_points_all = []
 
     routes = []
-    now = datetime.now()
+    now = get_boulder_now()
 
     for trip in trips:
         points = []
@@ -1090,7 +1098,7 @@ def parse_natural_query_endpoint(req: QueryParseRequest):
     orig_loc = orig_geo["results"][0] if orig_geo.get("results") else {"lat": 40.0000, "lon": -105.2520, "display_name": parsed["origin"]}
     dest_loc = dest_geo["results"][0] if dest_geo.get("results") else {"lat": 40.0076, "lon": -105.2659, "display_name": parsed["destination"]}
 
-    depart_dt = datetime.now()
+    depart_dt = get_boulder_now()
     if parsed["target_time"]:
         try:
             # Parse time string e.g. "9:00 AM", "5:30 PM", "14:00"

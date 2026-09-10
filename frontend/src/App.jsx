@@ -254,13 +254,19 @@ export default function App() {
     return () => clearInterval(interval);
   }, [checkHealth]);
 
-  // Live Boulder Local Clock
+  // Live Boulder Local Clock (America/Denver - Mountain Time)
   const [localTimeStr, setLocalTimeStr] = useState("");
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
       setLocalTimeStr(
-        now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })
+        now.toLocaleTimeString("en-US", {
+          timeZone: "America/Denver",
+          hour: "numeric",
+          minute: "2-digit",
+          second: "2-digit",
+          timeZoneName: "short",
+        })
       );
     };
     updateTime();
@@ -299,13 +305,12 @@ export default function App() {
   // Departure / Arrival Scheduling: 'now' | 'depart_at' | 'arrive_by'
   const [timeScheduleType, setTimeScheduleType] = useState("now");
   const [customDate, setCustomDate] = useState(() => {
-    return new Date().toISOString().split("T")[0];
+    return new Date().toLocaleDateString("en-CA", { timeZone: "America/Denver" });
   });
   const [customTime, setCustomTime] = useState(() => {
     const now = new Date();
-    const h = String(now.getHours()).padStart(2, "0");
-    const m = String(now.getMinutes()).padStart(2, "0");
-    return `${h}:${m}`;
+    const str = now.toLocaleTimeString("en-GB", { timeZone: "America/Denver", hour12: false });
+    return str.slice(0, 5);
   });
   const [departureMinutesOffset, setDepartureMinutesOffset] = useState(0);
   const [smartLeaveAdvice, setSmartLeaveAdvice] = useState(null);
@@ -985,15 +990,16 @@ export default function App() {
             <div className="brand-name">
               BoulderMove
               <span className="brand-badge">XGBoost ML</span>
+              <span className="boulder-co-badge">🏔️ Boulder, CO</span>
             </div>
-            <span className="brand-tagline">Multimodal Transit & Predictive ETA</span>
+            <span className="brand-tagline">Boulder & CU Campus Transit Routing • Colorado</span>
           </div>
         </div>
 
         <div className="nav-center-info">
-          <div className="nav-time-chip" title="Current Local Time in Boulder, CO">
+          <div className="nav-time-chip" title="Current Local Time in Boulder, CO (Mountain Time)">
             <Clock size={13} className="clock-icon" />
-            <span className="clock-text">Boulder: {localTimeStr}</span>
+            <span className="clock-text">Boulder Time: {localTimeStr}</span>
           </div>
         </div>
 
@@ -1044,6 +1050,12 @@ export default function App() {
         {/* Left Sidebar (~35%) */}
         <aside className="sidebar">
           <div className="sidebar-scrollable">
+            {/* BOULDER & COLORADO REGIONAL NOTICE */}
+            <div className="boulder-region-info-banner">
+              <MapPin size={13} className="region-pin-icon" />
+              <span>Covering <strong>Boulder & CU Campus</strong>: RTD Transit, Will Vill Express, Stampede & Flatirons Corridors.</span>
+            </div>
+
             {/* VOICE FAST-ACTION BANNER */}
             <div className="voice-prompt-banner" onClick={handleStartVoice}>
               <div className="voice-banner-icon">
