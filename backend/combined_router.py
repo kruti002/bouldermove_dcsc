@@ -1251,6 +1251,26 @@ def slack_ask_json(req: QueryParseRequest):
     return parse_natural_query_endpoint(req)
 
 
+@app.get("/api/slack/install")
+def slack_install_redirect():
+    """Redirects user to Slack OAuth consent flow to install BoulderMove to any workspace."""
+    from fastapi.responses import RedirectResponse
+    client_id = os.getenv("SLACK_CLIENT_ID")
+    redirect_uri = os.getenv("SLACK_REDIRECT_URI", "")
+    sharable_url = os.getenv("SLACK_SHARABLE_INSTALL_URL", "")
+
+    if client_id:
+        scopes = "commands,chat:write"
+        url = f"https://slack.com/oauth/v2/authorize?client_id={client_id}&scope={scopes}"
+        if redirect_uri:
+            url += f"&redirect_uri={redirect_uri}"
+        return RedirectResponse(url)
+    elif sharable_url:
+        return RedirectResponse(sharable_url)
+    else:
+        return RedirectResponse("https://api.slack.com/apps")
+
+
 @app.get("/api/slack/oauth")
 def slack_oauth_redirect(code: str = None, error: str = None):
     """Handles Slack OAuth V2 redirect for 1-click workspace installations."""

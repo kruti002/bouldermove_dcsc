@@ -1982,6 +1982,28 @@ export default function App() {
                 Connect BoulderMove to your Slack workspace! Team members and students can type slash commands to get instant departure times, live weather warnings, and XGBoost punctuality scores without opening a browser.
               </p>
 
+              {/* 1-Click Add to Slack Button & Public Install Action */}
+              <div className="slack-install-cta-card">
+                <div className="slack-install-info">
+                  <span className="slack-install-title">Install to Any Workspace</span>
+                  <span className="slack-install-desc">Add the /bouldermove command to your team or student workspace with one click.</span>
+                </div>
+                <a
+                  href={`${backendBaseUrl || ""}/api/slack/install`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="add-to-slack-btn"
+                >
+                  <svg className="slack-logo-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 122.8 122.8" width="18" height="18">
+                    <path fill="#e01e5a" d="M25.8 77.6a12.9 12.9 0 1 1-12.9-12.9h12.9v12.9zm6.5 0a12.9 12.9 0 1 1 25.8 0v32.3a12.9 12.9 0 1 1-25.8 0V77.6z"/>
+                    <path fill="#36c5f0" d="M45.2 25.8a12.9 12.9 0 1 1 12.9-12.9v12.9H45.2zm0 6.5a12.9 12.9 0 1 1 0 25.8H12.9a12.9 12.9 0 1 1 0-25.8h32.3z"/>
+                    <path fill="#2eb67d" d="M97 45.2a12.9 12.9 0 1 1 12.9 12.9H97V45.2zm-6.5 0a12.9 12.9 0 1 1-25.8 0V12.9a12.9 12.9 0 1 1 25.8 0v32.3z"/>
+                    <path fill="#ecb22e" d="M77.6 97a12.9 12.9 0 1 1-12.9 12.9V97h12.9zm0-6.5a12.9 12.9 0 1 1 0-25.8h32.3a12.9 12.9 0 1 1 0 25.8H77.6z"/>
+                  </svg>
+                  <span>Add to Slack</span>
+                </a>
+              </div>
+
               {/* Slash Command Preview Card */}
               <div className="slack-code-card">
                 <span className="slack-code-title">Slack Slash Command</span>
@@ -2043,7 +2065,7 @@ export default function App() {
                           setVoiceTranscript(val);
                           setShowSlackModal(false);
                           setShowVoiceModal(true);
-                          handleStopVoiceAndProcess();
+                          handleProcessVoiceQuery(val);
                         }
                       }
                     }}
@@ -2057,7 +2079,7 @@ export default function App() {
                         setVoiceTranscript(val);
                         setShowSlackModal(false);
                         setShowVoiceModal(true);
-                        handleStopVoiceAndProcess();
+                        handleProcessVoiceQuery(val);
                       }
                     }}
                   >
