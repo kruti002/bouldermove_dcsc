@@ -1,19 +1,19 @@
 # Render Blueprint Specification
-# Free Tier Python Web Service Deployment
+# Free Tier Docker Web Service Deployment (includes GDAL / GEOS / PROJ C-dependencies)
 services:
   - type: web
     name: bouldermove-backend
-    env: python
-    rootDir: backend
+    env: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
     plan: free
     region: oregon
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn combined_router:app --host 0.0.0.0 --port $PORT"
     healthCheckPath: /health
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
+      - key: PORT
+        value: 8080
       - key: OPENWEATHER_API_KEY
         sync: false
       - key: TICKETMASTER_API_KEY
         sync: false
+
