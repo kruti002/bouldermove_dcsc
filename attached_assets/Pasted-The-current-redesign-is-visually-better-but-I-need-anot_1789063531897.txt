@@ -1,0 +1,752 @@
+The current redesign is visually better, but I need another UI/UX and layout pass.
+
+IMPORTANT:
+Do NOT rebuild the application from scratch.
+Modify the existing implementation and preserve all currently working routing, map, weather and transit functionality.
+
+There are two major problems to fix:
+
+==================================================
+1. MAKE THE APPLICATION ACTUALLY FILL THE SCREEN
+==================================================
+
+Right now the whole BoulderMove application is displayed inside a narrow centered container and there is a huge amount of unused whitespace around and below it.
+
+I want BoulderMove to behave like a real full-screen navigation application.
+
+REMOVE:
+- The narrow centered max-width wrapper
+- Large left/right outer margins
+- Huge blank area below the planner/map
+- Unnecessary whitespace between the navbar and main application
+
+The application should occupy:
+
+width: 100vw
+min-height: 100vh
+
+The navbar should span the FULL browser width.
+
+Below the navbar, the main planner/map interface should fill all remaining available viewport height.
+
+Conceptually:
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│ BoulderMove      Plan Trip     Saved Trips     About      ☀ 72°     ◐ │
+├──────────────────────────────┬───────────────────────────────────────────┤
+│                              │                                           │
+│                              │                                           │
+│       TRIP PLANNER           │                                           │
+│                              │                  MAP                      │
+│       ROUTE RESULTS          │                                           │
+│                              │                                           │
+│                              │                                           │
+│                              │                                           │
+└──────────────────────────────┴───────────────────────────────────────────┘
+
+The interface should reach close to all four browser edges, with only sensible internal padding.
+
+Do NOT put the entire application inside one large centered card.
+
+Use something similar to:
+
+.app {
+    width: 100%;
+    min-height: 100vh;
+}
+
+.navbar {
+    width: 100%;
+}
+
+.main-layout {
+    height: calc(100vh - navbarHeight);
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(340px, 35%) 1fr;
+}
+
+The exact CSS can differ depending on the existing framework.
+
+==================================================
+2. MAKE THE MAP MUCH BIGGER
+==================================================
+
+The map should be the dominant visual element.
+
+Desktop ratio should approximately be:
+
+Trip planner/results:
+32–35%
+
+Map:
+65–68%
+
+The map should fill almost the full height underneath the navbar.
+
+It should NOT appear as a medium-sized map inside another card.
+
+Reduce unnecessary outer padding around the map.
+
+Use only a subtle border radius if needed.
+
+Something visually closer to:
+
+┌──────────── Planner ────────────┬───────────────────────────────────────┐
+│                                 │                                       │
+│ From                            │                                       │
+│ To                              │                                       │
+│                                 │                                       │
+│ Drive Transit Bike Walk         │                                       │
+│                                 │                MAP                    │
+│ Plan trip                       │                                       │
+│                                 │                                       │
+│ Route details                   │                                       │
+│                                 │                                       │
+│                                 │                                       │
+└─────────────────────────────────┴───────────────────────────────────────┘
+
+NOT:
+
+        [small planner] [small map]
+
+                  huge empty page
+
+
+==================================================
+3. REMOVE THE EXTRA EMPTY-STATE CARD
+==================================================
+
+Currently there is:
+
+"Where are you heading?"
+"Plan a trip to see travel times..."
+
+inside an entirely separate card beneath Trip Setup.
+
+This wastes vertical space.
+
+Integrate the empty state directly into the trip planner/results panel.
+
+For example:
+
+Plan your trip
+
+[ From ]
+[ To ]
+
+[ Drive | Transit | Bike | Walk ]
+
+[ Plan my trip → ]
+
+----------------------------
+
+Where are you heading?
+
+Enter an origin and destination to see
+routes, traffic, weather and transit information.
+
+When a route is calculated, this empty-state area should automatically become the route-results area.
+
+Do NOT create a second separate large card.
+
+
+==================================================
+4. REMOVE THE BOTTOM STATUS TEXT
+==================================================
+
+Remove this text from the bottom of the page:
+
+"Ready when you are — set up a trip to see predictions."
+
+It looks like debug/status text and creates unnecessary empty space.
+
+If status information is actually needed by the application, display it inside the planner as a subtle loading/status message.
+
+
+==================================================
+5. NAVIGATION BAR MUST ACTUALLY WORK
+==================================================
+
+The navbar currently contains:
+
+Plan trip
+Saved trips
+About
+
+but these items appear to simply be text.
+
+They must become real interactive navigation.
+
+Do NOT include navigation options that do nothing.
+
+
+----------------------
+PLAN TRIP
+----------------------
+
+"Plan Trip" should be the default active section.
+
+Clicking it should return the user to the main trip-planning interface.
+
+Give the active nav item a subtle active state.
+
+For example:
+
+Plan Trip
+────────
+
+or a subtle rounded highlighted background.
+
+Do NOT make it look like a large button.
+
+
+----------------------
+SAVED TRIPS
+----------------------
+
+Implement an actual Saved Trips experience.
+
+When the user clicks "Saved Trips", open either:
+
+- a clean side panel,
+- modal,
+- or dedicated application view.
+
+Prefer a side panel/drawer so that the map can remain visible.
+
+Example:
+
+Saved Trips
+
+★ Campus → Denver
+  42 min
+  Drive
+  Last used Sep 8
+
+★ Norlin → Airport
+  48 min
+  Transit
+
+★ Home → Campus
+  12 min
+  Bike
+
+Clicking a saved trip should populate:
+
+- Origin
+- Destination
+- Transportation mode
+
+and optionally calculate the route.
+
+Add:
+
++ Save current trip
+
+After a route has been calculated, allow the user to save it.
+
+Use localStorage if there is currently no backend support for user accounts.
+
+Do NOT pretend that saved trips are server-synced if they are not.
+
+If there are no saved trips:
+
+Saved Trips
+
+No saved trips yet.
+
+Save routes you use often and they will appear here.
+
+
+----------------------
+ABOUT
+----------------------
+
+"About" must also work.
+
+Clicking About should open a clean modal or application panel containing useful information.
+
+Example content:
+
+BoulderMove
+
+Smarter trip planning for Boulder and beyond.
+
+BoulderMove combines routing, transit information,
+weather conditions and travel predictions to help
+you choose the best way to reach your destination.
+
+Features
+
+• Driving, transit, cycling and walking routes
+• Transit stop and transfer information
+• Alternative route comparison
+• Weather-aware travel information
+• Saved trips
+
+Map data © OpenStreetMap contributors
+
+Close
+
+Do not create a huge new webpage just for this.
+
+A polished modal or side panel is sufficient.
+
+
+==================================================
+6. NAVBAR DESIGN
+==================================================
+
+Keep the new BoulderMove logo — it is much better than the original bus emoji.
+
+Make the navbar feel like a professional application header.
+
+LEFT:
+
+[BoulderMove icon] BoulderMove
+
+CENTER OR RIGHT-CENTER:
+
+Plan Trip
+Saved Trips
+About
+
+RIGHT:
+
+compact weather
+theme toggle
+
+Example:
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  [B] BoulderMove       Plan Trip   Saved Trips   About    ☀ 72°   ◐  │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Do NOT keep:
+
+[ Dark mode ]
+
+as a large text button.
+
+Replace it with a compact sun/moon icon button.
+
+Tooltip:
+
+Switch to dark mode
+
+or
+
+Switch to light mode.
+
+
+==================================================
+7. WEATHER DISPLAY
+==================================================
+
+Currently it says something like:
+
+"Boulder · clear conditions"
+
+This looks like plain navbar text.
+
+Redesign it as a small weather indicator:
+
+☀ 72°
+Boulder
+
+or:
+
+☀ 72° · Clear
+
+It should not dominate the navbar.
+
+Clicking it can optionally reveal:
+
+Boulder
+72°F
+Clear
+Feels like 71°F
+
+Only implement additional information if the current weather API supplies it.
+
+
+==================================================
+8. TRIP PLANNER REFINEMENT
+==================================================
+
+There are currently:
+
+Clear          Swap          Clear
+
+displayed on their own line.
+
+This looks awkward.
+
+Instead:
+
+Origin field:
+
+📍 Norlin Library                         ×
+
+                     ⇅
+
+Destination field:
+
+● Denver, CO                              ×
+
+The × icon clears each field.
+
+The swap button should be a small floating circular control positioned between the two fields.
+
+Remove the words:
+
+Clear
+Clear
+
+from underneath the fields.
+
+
+==================================================
+9. REMOVE / REWORK THE "STOPS — SEMICOLON SEPARATED" FIELD
+==================================================
+
+This field currently makes the interface look like a developer/debug tool:
+
+"Stops — semicolon separated"
+
+A normal navigation user should NEVER need to manually type semicolon-separated stops.
+
+Remove this field from the normal interface.
+
+If this functionality is required internally, move it under:
+
+Advanced Options
+    + Add intermediate stop
+
+When clicked, allow users to add normal location fields:
+
++ Add stop
+
+Then:
+
+Origin
+│
+Stop 1
+│
+Stop 2
+│
+Destination
+
+Allow drag/reordering if practical.
+
+Never expose raw semicolon-separated syntax to users.
+
+
+==================================================
+10. TRANSPORT MODE SELECTOR
+==================================================
+
+Improve the mode selector.
+
+Use icons + text:
+
+🚗 Drive
+🚌 Transit
+🚲 Bike
+🚶 Walk
+
+If possible, use the project's icon library rather than emoji.
+
+For example:
+
+Car icon    Drive
+Bus icon    Transit
+Bike icon   Bike
+Walk icon   Walk
+
+The selected mode gets a subtle green/teal state.
+
+Keep the entire selector compact.
+
+
+==================================================
+11. ROUTE RESULTS SHOULD USE THE LEFT PANEL
+==================================================
+
+After "Plan my trip" is clicked, do NOT create another separate dashboard column.
+
+Keep the results directly underneath the trip planner.
+
+For driving:
+
+Recommended
+
+42 min
+29.4 miles
+
+Norlin Library
+↓
+Denver
+
+Leave now
+Arrive 12:32 PM
+
+Normal traffic
+
+[ Overview ]
+
+
+Alternative routes
+
+47 min · via US-36
+51 min · via CO-93
+
+
+The planner column itself can scroll vertically while the map remains fixed.
+
+Use:
+
+overflow-y: auto;
+
+for the left panel when required.
+
+
+==================================================
+12. TRANSIT EXPERIENCE
+==================================================
+
+When Transit is selected, route results should become a modern transit journey timeline.
+
+DO NOT present transit stops as a long plain list.
+
+Example:
+
+11:48
+● Norlin Library
+│
+│ 🚶 Walk · 4 min
+│
+11:52
+● Broadway & Euclid
+│
+│  FF1
+│  Flatiron Flyer
+│  31 min · 12 stops
+│
+│  View 12 stops ▾
+│
+12:23
+● Union Station
+│
+│ 🚶 Walk · 3 min
+│
+12:26
+● Destination
+
+
+"View 12 stops" expands:
+
+● Broadway & Euclid
+│
+○ Baseline
+│
+○ Table Mesa Station
+│
+○ McCaslin
+│
+○ Broomfield
+│
+...
+● Union Station
+
+Minor stops:
+small dots
+
+Boarding/transfer/destination:
+larger dots
+
+Use connecting vertical lines.
+
+The expanded stop list should animate smoothly.
+
+
+==================================================
+13. MAP ↔ ROUTE RESULT INTERACTION
+==================================================
+
+The map and left panel should behave as one application.
+
+Selecting a route card:
+→ highlight its route on the map.
+
+Selecting another route:
+→ update map route emphasis.
+
+For transit:
+
+hover/click transit stop:
+→ highlight corresponding map marker.
+
+click map transit marker:
+→ highlight/scroll to corresponding stop in the journey panel.
+
+Origin and destination should have distinct markers.
+
+
+==================================================
+14. RESPONSIVENESS
+==================================================
+
+Large desktop:
+
+32–35% planner
+65–68% map
+
+Laptop:
+
+340–420px planner
+remaining screen map
+
+Tablet:
+
+Planner can become around 40%
+Map around 60%
+
+Mobile:
+
+Do NOT display two tiny columns.
+
+Instead:
+
+┌────────────────────┐
+│ BoulderMove        │
+├────────────────────┤
+│                    │
+│                    │
+│       MAP          │
+│                    │
+│                    │
+├────────────────────┤
+│        ───         │
+│ Plan your trip     │
+│ From               │
+│ To                 │
+│ Route information  │
+└────────────────────┘
+
+Use a draggable or expandable bottom-sheet style layout if practical.
+
+At minimum use a fixed/collapsible bottom panel.
+
+No horizontal scrolling.
+
+
+==================================================
+15. FULL-SCREEN MAP HEIGHT
+==================================================
+
+Pay particular attention to height calculations.
+
+The map container and Leaflet map itself must receive an explicit height.
+
+For example:
+
+main application:
+height: calc(100vh - navbar-height)
+
+map wrapper:
+height: 100%
+
+Leaflet container:
+height: 100%
+width: 100%
+
+Make sure nested containers also have valid height values.
+
+Do NOT leave the map at an arbitrary 450px/500px fixed height on desktop.
+
+
+==================================================
+16. POLISH
+==================================================
+
+Reduce borders and card-within-card appearance.
+
+There should be much less visible framing than there is currently.
+
+Prefer:
+
+Application background
+    ↓
+Planner surface | Map
+
+rather than:
+
+background
+  card
+    card
+      field
+  card
+    map
+  card
+
+Use borders only where they help separate functional areas.
+
+Keep:
+- rounded input fields
+- subtle surfaces
+- light shadows
+- clean typography
+
+But simplify the overall visual structure.
+
+
+==================================================
+17. IMPORTANT
+==================================================
+
+Do not merely change CSS dimensions.
+
+Actually inspect the component hierarchy and remove containers/max-width rules that cause the page to remain centered.
+
+Look for CSS such as:
+
+max-width
+margin: 0 auto
+container
+wrapper
+width: 1200px
+height: 500px
+
+and restructure these where needed.
+
+The desired result should look like a real full-screen mapping application, NOT a website containing a mapping widget.
+
+
+FINAL DESKTOP GOAL:
+
+┌───────────────────────────────────────────────────────────────────────────┐
+│ [B] BoulderMove        Plan Trip    Saved Trips    About     ☀72°    ◐ │
+├────────────────────────────┬──────────────────────────────────────────────┤
+│                            │                                              │
+│ Plan your trip             │                                              │
+│                            │                                              │
+│ 📍 Norlin Library      ×   │                                              │
+│          ⇅                 │                                              │
+│ ● Denver, CO           ×   │                                              │
+│                            │                                              │
+│ Drive Transit Bike Walk    │                 MAP                          │
+│                            │                                              │
+│ [ Plan my trip → ]         │                                              │
+│                            │                                              │
+│ Advanced options           │                                              │
+│ ──────────────────────     │                                              │
+│ Route results /            │                                              │
+│ transit timeline           │                                              │
+│                            │                                              │
+└────────────────────────────┴──────────────────────────────────────────────┘
+
+The entire browser should feel occupied and intentional.
+
+Preserve all working application logic while making these changes.

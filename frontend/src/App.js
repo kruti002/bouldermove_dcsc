@@ -156,7 +156,22 @@ function BrandMark({ size = 38 }) {
   );
 }
 
-function LocationInput({ value, onChange, onSelect, placeholder, style, selected }) {
+function AppIcon({ name, size = 18 }) {
+  const paths = {
+    close: <path d="m6 6 12 12M18 6 6 18" />,
+    swap: <path d="m8 7 3-3 3 3M11 4v16m5-3-3 3-3-3" />,
+    drive: <path d="m5 16 1.5-6h11L19 16M7 10l2-4h6l2 4M6 16v2m12-2v2M8 14h.01M16 14h.01" />,
+    transit: <path d="M7 18h10M8 20l2-2m6 2-2-2M7 4h10v11H7zM7 11h10M9 7h6" />,
+    bike: <path d="M6 18a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm12 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 15l4-7 4 7m-6-3h7l-2-4h3" />,
+    walk: <path d="M12 5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-2 15 1-6-3-3 2-4 4 1 2 4m-5 2 4 6m-7 0 3-6" />,
+    sun: <path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" />,
+    moon: <path d="M20 15.5A8 8 0 0 1 8.5 4 8 8 0 1 0 20 15.5Z" />,
+    weather: <path d="M8 15a4 4 0 1 1 3.2-6.4A5 5 0 0 1 20 12a3 3 0 0 1-3 3H8Z" />,
+  };
+  return <svg className="app-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
+}
+
+function LocationInput({ value, onChange, onSelect, onClear, placeholder, style, selected, marker }) {
   const [results, setResults] = useState([]);
   const [searchError, setSearchError] = useState("");
   const [isSearching, setIsSearching] = useState(false);
@@ -240,6 +255,7 @@ function LocationInput({ value, onChange, onSelect, placeholder, style, selected
   return (
     <div className={`location-search ${selected ? "has-location" : ""}`}>
       <div className="location-search-row">
+        <span className={`location-field-marker ${marker}`} aria-hidden="true" />
         <input
           value={value}
           role="combobox"
@@ -273,6 +289,11 @@ function LocationInput({ value, onChange, onSelect, placeholder, style, selected
           placeholder={placeholder}
           style={style}
         />
+        {value && (
+          <button className="location-clear" type="button" aria-label={`Clear ${placeholder.toLowerCase()}`} onClick={onClear}>
+            <AppIcon name="close" size={16} />
+          </button>
+        )}
         <button className="legacy-find-control" type="button" onClick={search} disabled={isSearching}>
           {isSearching ? "Searching" : "Find"}
         </button>
@@ -357,13 +378,6 @@ const rightPanelStyle = (darkMode) => ({
   overflowY: "auto",
 });
 
-const bottomStripStyle = (darkMode) => ({
-  marginTop: "8px",
-  padding: "8px 24px 18px",
-  fontSize: "14px",
-  color: darkMode ? "#d1d5db" : "#555",
-});
-
 /* Chip buttons */
 const chipStyle = (darkMode) => ({
   fontSize: "12px",
@@ -406,10 +420,30 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false);
   const showWeatherDetails = true;
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [activeNav, setActiveNav] = useState("plan");
+  const [savedTrips, setSavedTrips] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("bouldermove-saved-trips") || "[]"); }
+    catch { return []; }
+  });
+  const [showAbout, setShowAbout] = useState(false);
+  const [showSaved, setShowSaved] = useState(false);
   const [originCoords, setOriginCoords] = useState(null);
   const [destinationCoords, setDestinationCoords] = useState(null);
   const [routeStatus, setRouteStatus] = useState({ type: "idle", message: "" });
+  const [activeRouteIndex, setActiveRouteIndex] = useState(0);
   const routeRequestRef = useRef({ id: 0, controller: null });
+
+  useEffect(() => {
+    localStorage.setItem("bouldermove-saved-trips", JSON.stringify(savedTrips));
+  }, [savedTrips]);
+
+  const saveCurrentTrip = () => {
+    if (!origin || !destination) return;
+    const trip = { id: Date.now(), origin, destination, originCoords, destinationCoords, mode, savedAt: new Date().toISOString() };
+    setSavedTrips((current) => [trip, ...current.filter((item) =>
+      !(item.origin === origin && item.destination === destination && item.mode === mode)
+    )].slice(0, 12));
+  };
 
   const beginRouteRequest = useCallback(() => {
     routeRequestRef.current.controller?.abort();
@@ -654,22 +688,43 @@ const fetchOsmRoute = useCallback(async () => {
       }}
     >
       {/* MAIN APP CONTENT */}
-      <div
-        style={{
-          maxWidth: "1200px",
-          margin: "0 auto",
-        }}
-      >
+      {showSaved && (
+        <aside className="saved-drawer" aria-label="Saved trips">
+          <div className="drawer-heading"><h2>Saved trips</h2><button type="button" aria-label="Close saved trips" onClick={() => { setShowSaved(false); setActiveNav("plan"); }}>×</button></div>
+          {savedTrips.length === 0 ? (
+            <div className="drawer-empty"><strong>No saved trips yet.</strong><p>Save routes you use often and they will appear here.</p></div>
+          ) : savedTrips.map((trip) => (
+            <button className="saved-trip" type="button" key={trip.id} onClick={() => {
+              setOrigin(trip.origin); setDestination(trip.destination); setMode(trip.mode);
+              setShowSaved(false); setActiveNav("plan");
+            }}>
+              <strong>{trip.origin} → {trip.destination}</strong><span>{trip.mode} · saved locally</span>
+            </button>
+          ))}
+        </aside>
+      )}
+      {showAbout && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setShowAbout(false)}>
+          <section className="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-title">
+            <button className="modal-close" type="button" aria-label="Close about" onClick={() => setShowAbout(false)}>×</button>
+            <span className="eyebrow">BOULDERMOVE</span>
+            <h2 id="about-title">Smarter movement for Boulder and beyond.</h2>
+            <p>BoulderMove combines routing, transit information, weather conditions and travel predictions to help you choose the best way to reach your destination.</p>
+            <p className="about-note">Saved trips stay on this device. Map data © OpenStreetMap contributors.</p>
+          </section>
+        </div>
+      )}
+      <div className="app-shell">
         {/* TOP BAR */}
-        <header style={topBarStyle(darkMode)}>
+        <header className="app-header" style={topBarStyle(darkMode)}>
           <div className="brand-lockup">
             <BrandMark />
             <div className="brand-wordmark">BoulderMove</div>
           </div>
           <nav className="primary-nav" aria-label="Main navigation">
-            <a href="#planner">Plan trip</a>
-            <a href="#saved">Saved trips</a>
-            <a href="#about">About</a>
+            <button className={activeNav === "plan" ? "nav-active" : ""} type="button" onClick={() => { setActiveNav("plan"); setShowSaved(false); }}>Plan trip</button>
+            <button className={activeNav === "saved" ? "nav-active" : ""} type="button" onClick={() => { setActiveNav("saved"); setShowSaved(true); }}>Saved trips</button>
+            <button className={showAbout ? "nav-active" : ""} type="button" onClick={() => setShowAbout(true)}>About</button>
           </nav>
 
           <div
@@ -683,29 +738,25 @@ const fetchOsmRoute = useCallback(async () => {
           >
             {/* Dark Mode Toggle Button */}
             <button
+              className="theme-toggle"
+              aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+              title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
               onClick={() => setDarkMode((prev) => !prev)}
-              style={{
-                padding: "6px 12px",
-                borderRadius: "8px",
-                border: darkMode ? "1px solid #4b5563" : "1px solid #ccc",
-                background: darkMode ? "#1f2937" : "white",
-                color: darkMode ? "white" : "#333",
-                cursor: "pointer",
-                fontSize: "13px",
-                transition: "all 0.3s ease",
-              }}
             >
-                 {darkMode ? "Light mode" : "Dark mode"}
+              <AppIcon name={darkMode ? "sun" : "moon"} />
             </button>
 
-            <span className="nav-weather">Boulder · clear conditions</span>
+            <button type="button" className="nav-weather" title="Current weather for Boulder">
+              <AppIcon name="weather" size={17} />
+              <span><strong>{routes[0]?.weather?.temp != null ? `${Math.round(routes[0].weather.temp)}°` : "Boulder"}</strong>{routes[0]?.weather?.weather_main && <small>{routes[0].weather.weather_main}</small>}</span>
+            </button>
           </div>
         </header>
 
         {/* MAIN GRID */}
-        <main style={mainLayoutStyle}>
+        <main className="main-layout" style={mainLayoutStyle}>
           {/* LEFT PANEL – controls */}
-          <section style={leftPanelStyle(darkMode)}>
+          <section className="planner-panel" style={leftPanelStyle(darkMode)}>
             <h2
               style={{
                 fontSize: 16,
@@ -716,7 +767,8 @@ const fetchOsmRoute = useCallback(async () => {
               Trip setup
             </h2>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div className="planner-controls">
+              <div className="journey-fields">
               {/* ORIGIN */}
               <LocationInput
                 value={origin}
@@ -725,23 +777,14 @@ const fetchOsmRoute = useCallback(async () => {
                 placeholder="Origin"
                 style={inputStyle(darkMode)}
                 selected={Boolean(originCoords)}
+                marker="origin"
+                onClear={() => { setOrigin(""); setOriginCoords(null); clearOldRoute(); }}
               />
-              <div className="trip-field-actions">
-                <button type="button" className="field-action" aria-label="Clear origin" onClick={() => { setOrigin(""); setOriginCoords(null); }}>Clear</button>
                 <button type="button" className="swap-button" aria-label="Swap origin and destination" onClick={() => {
                   setOrigin(destination); setDestination(origin);
                   setOriginCoords(destinationCoords); setDestinationCoords(originCoords);
-                }}>Swap</button>
-                <button type="button" className="field-action" aria-label="Clear destination" onClick={() => { setDestination(""); setDestinationCoords(null); }}>Clear</button>
-              </div>
-
-              {/* STOPS */}
-              <input
-                value={stops}
-                onChange={(e) => setStops(e.target.value)}
-                placeholder="Stops — semicolon separated"
-                style={inputStyleLarge(darkMode)}
-              />
+                  clearOldRoute();
+                }}><AppIcon name="swap" size={16} /></button>
 
               {/* DESTINATION */}
               <LocationInput
@@ -751,15 +794,18 @@ const fetchOsmRoute = useCallback(async () => {
                 placeholder="Destination"
                 style={inputStyle(darkMode)}
                 selected={Boolean(destinationCoords)}
+                marker="destination"
+                onClear={() => { setDestination(""); setDestinationCoords(null); clearOldRoute(); }}
               />
+              </div>
 
               {/* MODE SELECT */}
               <select className="mode-test-select" aria-label="Travel mode" value={mode} onChange={(e) => setMode(e.target.value)}>
                 <option value="driving">Driving</option><option value="transit">Transit</option><option value="bicycling">Bicycling</option><option value="walking">Walking</option>
               </select>
               <div className="mode-segmented" role="group" aria-label="Travel mode">
-                {[["driving", "Drive"], ["transit", "Transit"], ["bicycling", "Bike"], ["walking", "Walk"]].map(([value, label]) => (
-                  <button type="button" key={value} className={mode === value ? "mode-active" : ""} aria-pressed={mode === value} onClick={() => setMode(value)}>{label}</button>
+                {[["driving", "Drive", "drive"], ["transit", "Transit", "transit"], ["bicycling", "Bike", "bike"], ["walking", "Walk", "walk"]].map(([value, label, icon]) => (
+                  <button type="button" key={value} className={mode === value ? "mode-active" : ""} aria-pressed={mode === value} onClick={() => setMode(value)}><AppIcon name={icon} size={17} /><span>{label}</span></button>
                 ))}
               </div>
               <button
@@ -791,70 +837,19 @@ const fetchOsmRoute = useCallback(async () => {
                 />
                 Show alternative routes
               </label>
+              <label className={`intermediate-stop-field ${showAdvanced ? "" : "advanced-option-collapsed"}`}>
+                <span>Intermediate stops</span>
+                <input
+                  value={stops}
+                  onChange={(e) => setStops(e.target.value)}
+                  placeholder="Add optional stops"
+                  style={inputStyleLarge(darkMode)}
+                />
+                <small>Separate multiple stops with a semicolon.</small>
+              </label>
 
             </div>
-          </section>
-
-          {/* CENTER PANEL – MAP */}
-          <section style={centerPanelStyle(darkMode)}>
-            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>
-              Map view
-            </div>
-            <div style={mapContainerStyle}>
-                {(routeStatus.type === "no_route" ||
-                  routeStatus.type === "provider_failure") && (
-                  <RouteUnavailable
-                    status={routeStatus}
-                    onRetry={retryRoute}
-                    darkMode={darkMode}
-                    compact
-                  />
-                )}
-                <MapContainer
-                  zoom={11}
-                  center={[40.015, -105.2705]}
-                  style={{ width: "100%", height: "100%" }}
-                >
-                  <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
-                  <FitRouteBounds paths={decodedRoutes} />
-                  {/* ROUTE POLYLINES */}
-                  {decodedRoutes.map((path, i) => (
-                    <Polyline
-                      key={i}
-                      positions={path.map((point) => [point.lat, point.lng])}
-                      pathOptions={{
-                        color: [
-                          "#4285F4",
-                          "#FF6347",
-                          "#2ECC71",
-                          "#8E44AD",
-                        ][i % 4],
-                        weight: i === 0 ? 6 : 4,
-                        opacity: i === 0 ? 1 : 0.7,
-                      }}
-                    />
-                  ))}
-
-                  {/* MARKERS */}
-                  {buildMarkers().map((m, index) => (
-                    <Marker
-                      key={index}
-                      position={[m.position.lat, m.position.lng]}
-                    >
-                      <Tooltip permanent direction="top">
-                        {String.fromCharCode(65 + index)}
-                      </Tooltip>
-                    </Marker>
-                  ))}
-                </MapContainer>
-            </div>
-          </section>
-
-          {/* RIGHT PANEL – route insights */}
-          <section style={rightPanelStyle(darkMode)}>
+          <div className="planner-results">
             <h2
               style={{
                 fontSize: 16,
@@ -889,6 +884,7 @@ const fetchOsmRoute = useCallback(async () => {
                 >Fewer transfers</button>
               </div>
             )}
+            {routes.length > 0 && <button type="button" className="save-trip-button" onClick={saveCurrentTrip}>Save current trip</button>}
 
             {/* ROUTE LIST */}
             {routeStatus.type === "no_route" ||
@@ -932,28 +928,48 @@ const fetchOsmRoute = useCallback(async () => {
                 />
               ))
             )}
+          </div>
+          </section>
+
+          {/* MAP */}
+          <section className="map-panel" style={centerPanelStyle(darkMode)}>
+            <div className="map-container" style={mapContainerStyle}>
+              {(routeStatus.type === "no_route" || routeStatus.type === "provider_failure") && (
+                <RouteUnavailable
+                  status={routeStatus}
+                  onRetry={retryRoute}
+                  darkMode={darkMode}
+                  compact
+                />
+              )}
+              <MapContainer zoom={11} center={[40.015, -105.2705]} style={{ width: "100%", height: "100%" }}>
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <FitRouteBounds paths={decodedRoutes} />
+                {decodedRoutes.map((path, i) => (
+                  <Polyline
+                    key={i}
+                    positions={path.map((point) => [point.lat, point.lng])}
+                    eventHandlers={{ click: () => setActiveRouteIndex(i) }}
+                    pathOptions={{
+                      color: ["#4285F4", "#FF6347", "#2ECC71", "#8E44AD"][i % 4],
+                      weight: i === activeRouteIndex ? 7 : 3,
+                      opacity: i === activeRouteIndex ? 1 : 0.42,
+                    }}
+                  />
+                ))}
+                {buildMarkers().map((m, index) => (
+                  <Marker key={index} position={[m.position.lat, m.position.lng]}>
+                    <Tooltip permanent direction="top">{index === 0 ? "A" : index === buildMarkers().length - 1 ? "B" : String.fromCharCode(65 + index)}</Tooltip>
+                  </Marker>
+                ))}
+              </MapContainer>
+            </div>
           </section>
         </main>
 
-        {/* BOTTOM SUMMARY */}
-        <footer style={bottomStripStyle(darkMode)}>
-          {routes.length > 0 ? (
-            <>
-              <strong>Summary:</strong>{" "}
-              {routes[0].duration_min != null
-                ? `Fastest route is ${routes[0].duration_min} min and ${routes[0].distance_km} km. `
-                : "Route loaded. "}
-              {routes[0].weather && (
-                <>
-                  Current weather at origin: {routes[0].weather.temp} °C,{" "}
-                  {routes[0].weather.weather_main}.
-                </>
-              )}
-            </>
-          ) : (
-            <>Ready when you are — set up a trip to see predictions.</>
-          )}
-        </footer>
       </div>
     </div>
   );
