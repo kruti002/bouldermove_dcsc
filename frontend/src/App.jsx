@@ -2048,50 +2048,35 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Interactive In-Browser Bot Test */}
-              <div className="slack-interactive-tester">
-                <span className="slack-code-title">🧪 Test the Bot Right Here in Browser</span>
-                <div className="slack-tester-input-row">
-                  <input
-                    type="text"
-                    className="slack-test-input"
-                    placeholder="e.g. Will Vill to Norlin Library by 9:00 AM"
-                    id="slackTestQueryInput"
-                    defaultValue="Williams Village to Norlin Library by 9:00 AM"
-                    onKeyDown={async (e) => {
-                      if (e.key === "Enter") {
-                        const val = e.target.value;
-                        if (val) {
-                          setVoiceTranscript(val);
-                          setShowSlackModal(false);
-                          setShowVoiceModal(true);
-                          handleProcessVoiceQuery(val);
-                        }
-                      }
-                    }}
-                  />
+              {/* Quick Example Slash Commands */}
+              <div className="slack-examples-section">
+                <span className="slack-code-title">Example Commands to Try in Slack:</span>
+                <div className="slack-quick-cmds">
                   <button
-                    className="slack-test-send-btn"
+                    type="button"
+                    className="slack-quick-cmd-item"
                     onClick={() => {
-                      const input = document.getElementById("slackTestQueryInput");
-                      const val = input ? input.value : "";
-                      if (val) {
-                        setVoiceTranscript(val);
-                        setShowSlackModal(false);
-                        setShowVoiceModal(true);
-                        handleProcessVoiceQuery(val);
-                      }
+                      navigator.clipboard.writeText("/bouldermove Bear Creek to Engineering Center");
+                      setCopiedSlack(true);
+                      setTimeout(() => setCopiedSlack(false), 2000);
                     }}
                   >
-                    Send
+                    <code>/bouldermove Bear Creek to Engineering Center</code>
+                    <span className="copy-tag">📋 Copy</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="slack-quick-cmd-item"
+                    onClick={() => {
+                      navigator.clipboard.writeText("/bouldermove East Campus SEEC to Pearl Street by 5:30 PM");
+                      setCopiedSlack(true);
+                      setTimeout(() => setCopiedSlack(false), 2000);
+                    }}
+                  >
+                    <code>/bouldermove East Campus SEEC to Pearl Street by 5:30 PM</code>
+                    <span className="copy-tag">📋 Copy</span>
                   </button>
                 </div>
-              </div>
-
-              {/* Setup Info for Workspace Admins */}
-              <div className="slack-setup-info">
-                <strong>Slack Webhook Request URL:</strong>
-                <code>{backendBaseUrl || "http://localhost:8080"}/api/slack/command</code>
               </div>
             </div>
           </div>

@@ -243,16 +243,16 @@ def geocode_address(q: str):
     High-speed robust geocoding with Photon Komoot & Nominatim fallback and in-memory caching.
     Supports coordinates, house addresses, street names, and landmark queries.
     """
-    query = (q or "").strip()
-    if len(query) < 2:
+    raw_query = (q or "").strip()
+    if len(raw_query) < 2:
         return {"results": []}
 
-    cache_key = query.lower()
+    cache_key = raw_query.lower()
     if cache_key in _geocode_cache:
         return {"results": _geocode_cache[cache_key]}
 
-    # Check for direct lat,lon coordinate input
-    coords_match = re.match(r"^([-+]?\d{1,2}(?:\.\d+)?)[,\s]+([-+]?\d{1,3}(?:\.\d+)?)$", query)
+    # Check for direct lat,lon coordinate input first on raw_query
+    coords_match = re.match(r"^([-+]?\d{1,2}(?:\.\d+)?)[,\s]+([-+]?\d{1,3}(?:\.\d+)?)$", raw_query)
     if coords_match:
         try:
             clat = float(coords_match.group(1))
@@ -263,6 +263,10 @@ def geocode_address(q: str):
                 return {"results": res}
         except Exception:
             pass
+
+    cleaned_q = clean_address_text(raw_query)
+    query = (cleaned_q or raw_query).strip()
+
 
     results = []
 
@@ -647,15 +651,86 @@ def get_optimal_transfer_hub(corr1_key: str, corr2_key: str, stop1: dict, stop2:
 
 
 
+def clean_address_text(text: str) -> str:
+    """Strips conversational noise, punctuation, and intent filler clauses from address strings."""
+    if not text:
+        return ""
+    s = text.strip()
+    # Strip sentences after period, exclamation, question mark, or semicolon
+    s = re.split(r"(?<=[a-zA-Z])\s*[\.!\?;]", s)[0].strip()
+
+    # Strip trailing conversational clauses
+    filler_patterns = [
+        r"\b(?:and|so|then)?\s*(?:i\s+)?(?:wanna|want to|need to|trying to|going to|heading to)\s+(?:reach|get to|go to|be at|arrive at|reach my|get my)?\s*(?:home|house|work|class|school|dorm|apt|apartment|there|here)\b.*$",
+        r"\b(?:to reach|to get to|to go to|to arrive at)\s+(?:home|house|work|class|school|dorm|apt|apartment|there|here)\b.*$",
+        r"\b(?:please|asap|thank you|thanks|right now|immediately)\b.*$",
+        r"\b(?:want to reach home|wanna reach home|want to go home|reach home|heading home|go home)\b.*$",
+    ]
+    for pat in filler_patterns:
+        s = re.sub(pat, "", s, flags=re.I).strip()
+
+    # Strip leading prepositions & fillers
+    s = re.sub(r"^(?:im at|i am at|at|from|to|dest|the|my location|current location)\s+", "", s, flags=re.I).strip()
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
 def plan_boulder_multimodal_journey(origin_lat: float, origin_lon: float, dest_lat: float, dest_lon: float, depart_dt: datetime):
     """
     Synthesizes a realistic, multimodal transit journey across authentic Boulder RTD lines:
     Walk -> Bus 1 (with intermediate stops) -> Transfer Walk -> Bus 2 (with intermediate stops) -> Walk.
-    Ensures BOUND runs exclusively along 30th Street (transfers at 29th St Mall / 30th & Colorado),
-    HOP serves the central loop, SKIP on Broadway, JUMP on Arapahoe, and 208 on Moorhead.
     """
+    # Guard: If origin and destination are within walking distance (< 400m), return direct walk instead of circular transit loops
+    approx_dist_km = ((origin_lat - dest_lat) ** 2 + ((origin_lon - dest_lon) * 0.76) ** 2) ** 0.5 * 111.0
+    if approx_dist_km < 0.40:
+        walk_mins = max(1, int(approx_dist_km * 12.0) + 2)
+        arr_t = depart_dt + timedelta(minutes=walk_mins)
+        walk_leg = {
+            "mode": "WALK",
+            "route_id": "Walking",
+            "from_stop": "origin",
+            "from_stop_name": "Origin",
+            "to_stop": "destination",
+            "to_stop_name": "Destination",
+            "departure": depart_dt.strftime("%I:%M %p"),
+            "arrival": arr_t.strftime("%I:%M %p"),
+            "duration_min": walk_mins,
+            "intermediate_stops_details": [],
+        }
+        geo_pts = [(origin_lat, origin_lon), (dest_lat, dest_lon)]
+        return {
+            "legs": [walk_leg],
+            "geometry": fetch_valhalla_geometry(geo_pts),
+            "base_duration": walk_mins,
+            "num_transfers": 0,
+        }
+
     corr1_key, stop1 = find_best_stop_and_corridor(origin_lat, origin_lon)
     corr2_key, stop2 = find_best_stop_and_corridor(dest_lat, dest_lon)
+
+    # Guard: If both resolve to the exact same stop, walk directly
+    if stop1["id"] == stop2["id"]:
+        walk_mins = max(2, int(approx_dist_km * 12.0) + 2)
+        arr_t = depart_dt + timedelta(minutes=walk_mins)
+        walk_leg = {
+            "mode": "WALK",
+            "route_id": "Short Walk",
+            "from_stop": stop1["id"],
+            "from_stop_name": f"Walk near {stop1['name']}",
+            "to_stop": stop2["id"],
+            "to_stop_name": "Destination",
+            "departure": depart_dt.strftime("%I:%M %p"),
+            "arrival": arr_t.strftime("%I:%M %p"),
+            "duration_min": walk_mins,
+            "intermediate_stops_details": [],
+        }
+        return {
+            "legs": [walk_leg],
+            "geometry": fetch_valhalla_geometry([(origin_lat, origin_lon), (dest_lat, dest_lon)]),
+            "base_duration": walk_mins,
+            "num_transfers": 0,
+        }
+
 
     current_time = depart_dt
     walk1_mins = 4
@@ -1066,13 +1141,13 @@ def parse_trip_phrase(text: str):
                     origin = m_simple.group(1).strip()
                     destination = m_simple.group(2).strip()
 
-    # Clean filler words from origin and destination
+    # Clean filler words & trailing intent clauses from origin and destination
     for filler in ["my location", "here", "current location"]:
         if origin.lower() == filler:
             origin = "Williams Village"  # Default sensible Boulder location
 
-    origin = re.sub(r"^(im at|i am at|at|from)\s+", "", origin, flags=re.I).strip()
-    destination = re.sub(r"^(to|dest|the)\s+", "", destination, flags=re.I).strip()
+    origin = clean_address_text(origin)
+    destination = clean_address_text(destination)
 
     return {
         "origin": origin or "Williams Village",
@@ -1096,7 +1171,8 @@ def parse_natural_query_endpoint(req: QueryParseRequest):
     dest_geo = geocode_address(parsed["destination"])
 
     orig_loc = orig_geo["results"][0] if orig_geo.get("results") else {"lat": 40.0000, "lon": -105.2520, "display_name": parsed["origin"]}
-    dest_loc = dest_geo["results"][0] if dest_geo.get("results") else {"lat": 40.0076, "lon": -105.2659, "display_name": parsed["destination"]}
+    dest_loc = dest_geo["results"][0] if dest_geo.get("results") else {"lat": 40.0340, "lon": -105.2603, "display_name": parsed["destination"]}
+
 
     depart_dt = get_boulder_now()
     if parsed["target_time"]:
@@ -1166,26 +1242,10 @@ def parse_natural_query_endpoint(req: QueryParseRequest):
 
 
 # ---------------------- SLACK WEBHOOK & SLASH COMMAND -----------------------
-from fastapi import Form, Request
+from fastapi import Form, Request, BackgroundTasks
 
-@app.post("/api/slack/command")
-async def slack_slash_command(
-    request: Request,
-    text: str = Form(default=""),
-    user_name: str = Form(default="Traveler"),
-    channel_name: str = Form(default="general"),
-):
-    """
-    Slack Slash Command Handler (e.g. `/bouldermove I am at Williams Village and need to get to Norlin Library by 9 AM`)
-    Returns rich formatted Slack blocks with departure time, bus lines, and ML delay prediction.
-    """
-    query_text = (text or "").strip()
-    if not query_text:
-        return {
-            "response_type": "ephemeral",
-            "text": "🏔️ *BoulderMove Slack Assistant*\nUsage: `/bouldermove [origin] to [destination] [by time]`\nExample: `/bouldermove Williams Village to Norlin Library by 9:00 AM`",
-        }
-
+def process_slack_query_async(response_url: str, query_text: str, user_name: str):
+    """Computes routing and ML prediction in background and delivers response to Slack response_url."""
     try:
         data = parse_natural_query_endpoint(QueryParseRequest(query=query_text))
         orig_name = data["origin"]["name"]
@@ -1211,7 +1271,7 @@ async def slack_slash_command(
                 "fields": [
                     {"type": "mrkdwn", "text": f"*📍 From:*\n{orig_name}"},
                     {"type": "mrkdwn", "text": f"*🎯 To:*\n{dest_name}"},
-                    {"type": "mrkdwn", "text": f"*⏰ Recommended Leave Time:*\n`{leave_time}`"},
+                    {"type": "mrkdwn", "text": f"*⏰ Recommended Leave Time:*\n`{leave_time}` (Boulder MT)"},
                     {"type": "mrkdwn", "text": f"*🏁 Estimated Arrival:*\n`{arr_time}` (~{dur} mins)"},
                 ],
             },
@@ -1219,7 +1279,7 @@ async def slack_slash_command(
                 "type": "section",
                 "fields": [
                     {"type": "mrkdwn", "text": f"*🚌 Route:*\n{route_mode}"},
-                    {"type": "mrkdwn", "text": f"*🤖 ML On-Time Score:*\n{prob}% Confidence ({traffic})"},
+                    {"type": "mrkdwn", "text": f"*🤖 ML On-Time Score:*\n{prob}% Confidence ({traffic} traffic)"},
                 ],
             },
             {
@@ -1233,10 +1293,63 @@ async def slack_slash_command(
             },
         ]
 
-        return {
+        payload = {
             "response_type": "in_channel",
+            "replace_original": True,
             "blocks": blocks,
             "text": f"Trip from {orig_name} to {dest_name}: Leave at {leave_time}, arrive ~{arr_time}.",
+        }
+        if response_url:
+            requests.post(response_url, json=payload, timeout=15)
+    except Exception as e:
+        if response_url:
+            requests.post(
+                response_url,
+                json={"response_type": "ephemeral", "text": f"❌ Error computing trip: {str(e)}"},
+                timeout=10,
+            )
+
+
+@app.post("/api/slack/command")
+async def slack_slash_command(
+    background_tasks: BackgroundTasks,
+    text: str = Form(default=""),
+    user_name: str = Form(default="Traveler"),
+    response_url: str = Form(default=""),
+):
+    """
+    Slack Slash Command Handler (e.g. `/bouldermove I am at Williams Village and need to get to Norlin Library by 9 AM`)
+    Responds immediately to avoid Slack's 3000ms timeout, then streams the full prediction via response_url.
+    """
+    query_text = (text or "").strip()
+    if not query_text:
+        return {
+            "response_type": "ephemeral",
+            "text": "🏔️ *BoulderMove Slack Assistant*\nUsage: `/bouldermove [origin] to [destination] [by time]`\nExample: `/bouldermove Williams Village to Norlin Library by 9:00 AM`",
+        }
+
+    if response_url:
+        background_tasks.add_task(process_slack_query_async, response_url, query_text, user_name)
+        return {
+            "response_type": "in_channel",
+            "text": f"🔍 *Calculating Boulder transit route & XGBoost prediction for @{user_name}...*",
+        }
+
+    # Fallback synchronous if response_url is absent
+    try:
+        data = parse_natural_query_endpoint(QueryParseRequest(query=query_text))
+        orig_name = data["origin"]["name"]
+        dest_name = data["destination"]["name"]
+        leave_time = data["smart_leave_time"]
+        arr_time = data["predicted_arrival"]
+        dur = data["duration_minutes"]
+        traffic = data["traffic_condition"]
+        prob = int(data["on_time_probability"] * 100)
+        route_mode = data["route_summary"]
+
+        return {
+            "response_type": "in_channel",
+            "text": f"Trip from {orig_name} to {dest_name}: Leave at {leave_time}, arrive ~{arr_time} via {route_mode} ({prob}% ML confidence).",
         }
     except Exception as e:
         return {
@@ -1275,21 +1388,22 @@ def slack_install_redirect():
 def slack_oauth_redirect(code: str = None, error: str = None):
     """Handles Slack OAuth V2 redirect for 1-click workspace installations."""
     from fastapi.responses import HTMLResponse
+    frontend_url = os.getenv("FRONTEND_URL", "https://bouldermove.netlify.app")
 
     if error:
         return HTMLResponse(
             f"<html><body style='font-family:sans-serif;text-align:center;padding:50px;background:#0d1117;color:#fff;'>"
             f"<h2 style='color:#f87171;'>Installation Cancelled</h2>"
             f"<p>Slack returned error: {error}</p>"
-            f"<a href='/' style='color:#60a5fa;'>Return to BoulderMove</a>"
+            f"<a href='{frontend_url}' style='color:#60a5fa;'>Return to BoulderMove</a>"
             f"</body></html>"
         )
     if not code:
         return HTMLResponse(
-            "<html><body style='font-family:sans-serif;text-align:center;padding:50px;background:#0d1117;color:#fff;'>"
-            "<h2>BoulderMove Slack Bot</h2><p>No OAuth code received.</p>"
-            "<a href='/' style='color:#60a5fa;'>Return to BoulderMove</a>"
-            "</body></html>"
+            f"<html><body style='font-family:sans-serif;text-align:center;padding:50px;background:#0d1117;color:#fff;'>"
+            f"<h2>BoulderMove Slack Bot</h2><p>No OAuth code received.</p>"
+            f"<a href='{frontend_url}' style='color:#60a5fa;'>Return to BoulderMove</a>"
+            f"</body></html>"
         )
 
     client_id = os.getenv("SLACK_CLIENT_ID")
@@ -1314,20 +1428,21 @@ def slack_oauth_redirect(code: str = None, error: str = None):
                 return HTMLResponse(
                     f"<html><body style='font-family:sans-serif;text-align:center;padding:50px;background:#0d1117;color:#fff;'>"
                     f"<h1 style='color:#34d399;'>🎉 Successfully Connected to {team_name}!</h1>"
-                    f"<p>BoulderMove is now installed. Type <code>/bouldermove</code> in any channel or direct message in Slack.</p>"
-                    f"<a href='/' style='display:inline-block;margin-top:20px;padding:10px 20px;background:#3b82f6;color:white;text-decoration:none;border-radius:8px;'>Open BoulderMove App</a>"
+                    f"<p style='font-size:16px;color:#94a3b8;'>BoulderMove is now active. Type <code>/bouldermove</code> in any Slack channel.</p>"
+                    f"<a href='{frontend_url}' style='display:inline-block;margin-top:20px;padding:12px 24px;background:#0d9488;color:white;text-decoration:none;border-radius:8px;font-weight:600;'>Return to BoulderMove App</a>"
                     f"</body></html>"
                 )
         except Exception as e:
             pass
 
     return HTMLResponse(
-        "<html><body style='font-family:sans-serif;text-align:center;padding:50px;background:#0d1117;color:#fff;'>"
-        "<h1 style='color:#34d399;'>🎉 BoulderMove Slack Connected!</h1>"
-        "<p>Your Slack Slash Command is active. You can now use <code>/bouldermove [origin] to [dest]</code> anytime in Slack!</p>"
-        "<a href='/' style='display:inline-block;margin-top:20px;padding:10px 20px;background:#3b82f6;color:white;text-decoration:none;border-radius:8px;'>Return to BoulderMove</a>"
-        "</body></html>"
+        f"<html><body style='font-family:sans-serif;text-align:center;padding:50px;background:#0d1117;color:#fff;'>"
+        f"<h1 style='color:#34d399;'>🎉 BoulderMove Slack Connected!</h1>"
+        f"<p style='font-size:16px;color:#94a3b8;'>Your Slack Slash Command is active. You can now use <code>/bouldermove [origin] to [dest]</code> anytime in Slack!</p>"
+        f"<a href='{frontend_url}' style='display:inline-block;margin-top:20px;padding:12px 24px;background:#0d9488;color:white;text-decoration:none;border-radius:8px;font-weight:600;'>Return to BoulderMove App</a>"
+        f"</body></html>"
     )
+
 
 
 
