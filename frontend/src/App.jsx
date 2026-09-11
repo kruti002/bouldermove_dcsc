@@ -691,9 +691,22 @@ export default function App() {
         setDestText(data.destination.name.split(",")[0]);
         setDestCoords({ lat: data.destination.lat, lon: data.destination.lon });
         if (data.mode) setMode(data.mode);
-        if (data.target_time_str) {
-          setScheduleTime(data.target_time_str);
-          setTimeScheduleType("arrive_by");
+        const rawTargetTime = data.target_time_str || data.parsed?.target_time;
+        if (rawTargetTime) {
+          let h = 9, m = 0;
+          const match = String(rawTargetTime).match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+          if (match) {
+            h = parseInt(match[1], 10);
+            m = match[2] ? parseInt(match[2], 10) : 0;
+            const isPm = match[3] && match[3].toLowerCase() === "pm";
+            const isAm = match[3] && match[3].toLowerCase() === "am";
+            if (isPm && h < 12) h += 12;
+            if (isAm && h === 12) h = 0;
+          }
+          const hh = String(h).padStart(2, "0");
+          const mm = String(m).padStart(2, "0");
+          setCustomTime(`${hh}:${mm}`);
+          setTimeScheduleType(data.time_type || data.parsed?.time_type || "arrive_by");
         }
         setVoiceFeedback(data.speech_response);
 

@@ -874,6 +874,20 @@ def plan_boulder_multimodal_journey(origin_lat: float, origin_lon: float, dest_l
     }
 
 
+def parse_boulder_datetime(iso_str: str | None) -> datetime:
+    """Parses any incoming ISO datetime and strictly converts it into Boulder, CO local time (Mountain Time)."""
+    if not iso_str:
+        return get_boulder_now()
+    try:
+        clean_iso = iso_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(clean_iso)
+        if dt.tzinfo is not None:
+            return dt.astimezone(BOULDER_TZ)
+        return dt.replace(tzinfo=BOULDER_TZ)
+    except Exception:
+        return get_boulder_now()
+
+
 # --------------------------- MAIN ROUTING APIS -----------------------------
 @app.post("/plan_transit_full")
 def plan_transit_full(req: PlanTransitRequest):
@@ -881,11 +895,7 @@ def plan_transit_full(req: PlanTransitRequest):
     Multimodal transit journey planning with walking, bus connections, transfer hubs,
     intermediate stops breakdown, live OpenWeather conditions, and native XGBoost ETA prediction.
     """
-    departure_iso = req.depart_at or get_boulder_now().replace(microsecond=0).isoformat()
-    try:
-        depart_dt = datetime.fromisoformat(departure_iso.replace("Z", "+00:00"))
-    except Exception:
-        depart_dt = get_boulder_now()
+    depart_dt = parse_boulder_datetime(req.depart_at)
 
     # Generate complete multimodal journey with walking and transfer legs
     journey = plan_boulder_multimodal_journey(
@@ -1237,6 +1247,8 @@ def parse_natural_query_endpoint(req: QueryParseRequest):
         "on_time_probability": pred["prob_on_time"],
         "speech_response": speech_text,
         "route_summary": route_summary,
+        "target_time_str": parsed["target_time"],
+        "time_type": parsed["time_type"],
         "full_data": res,
     }
 
@@ -1311,6 +1323,8 @@ def process_slack_query_async(response_url: str, query_text: str, user_name: str
 
 
 @app.post("/api/slack/command")
+@app.post("/slack/command")
+@app.post("/")
 async def slack_slash_command(
     background_tasks: BackgroundTasks,
     text: str = Form(default=""),
