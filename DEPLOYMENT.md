@@ -166,6 +166,10 @@ git push origin main
 4. Environment Variables:
    - `OPENWEATHER_API_KEY`: `b1f797ed5078abcd1bcbfb8d5d750e87`
    - `TICKETMASTER_API_KEY`: `waZJvQykZcKcIDmDNKrFkbvm9Ve35LIj`
+   - `FRONTEND_URL`: `https://bouldermove.netlify.app`
+   - `SLACK_CLIENT_ID`: `<your-slack-app-client-id>` (Optional for 1-click install)
+   - `SLACK_CLIENT_SECRET`: `<your-slack-app-client-secret>`
+   - `SLACK_REDIRECT_URI`: `https://bouldermove-backend.onrender.com/api/slack/oauth`
 5. Click **Deploy Web Service** and copy your backend URL (e.g. `https://bouldermove-backend.onrender.com`).
 
 ### Step 3: Deploy Frontend to Netlify (Free)
@@ -178,3 +182,17 @@ git push origin main
 4. Environment Variables:
    - `VITE_BACKEND_URL`: `https://bouldermove-backend.onrender.com` (your Render URL from Step 2).
 5. Click **Deploy site**.
+
+---
+
+## 7. Slack App Installation & OAuth Configuration
+
+1. Go to **[api.slack.com/apps](https://api.slack.com/apps)** → Select **BoulderMove**.
+2. Under **OAuth & Permissions**:
+   - **Redirect URLs:** Add `https://bouldermove-backend.onrender.com/api/slack/oauth` (or `http://localhost:8080/api/slack/oauth` for local dev).
+   - **Bot Token Scopes:** `commands`, `chat:write`, `incoming-webhook`.
+3. Under **Slash Commands**:
+   - **Command:** `/bouldermove`
+   - **Request URL:** `https://bouldermove-backend.onrender.com/api/slack/command`
+   - **Description:** `Get multimodal transit routes and XGBoost ETA predictions in Boulder`
+4. When a user clicks **"Add BoulderMove to Slack"**, BoulderMove handles the OAuth handshake and returns the user back to the application with `Slack ✓` connected status.
